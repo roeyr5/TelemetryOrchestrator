@@ -3,85 +3,44 @@ using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
+using TelemetryOrchestrator.Entities;
+using TelemetryOrchestrator.Extentions;
+using TelemetryOrchestrator.Interfaces;
+using TelemetryOrchestrator.Services;
+using TelemetryOrchestrator.Services.Http_Requests;
 
 namespace TelemetryOrchestrator.Controllers
 {
-    public class OrchestratorController : Controller
+    [ApiController]
+    [Route("[controller]")]
+    public class OrchestratorController : ControllerBase
     {
-        // GET: OrchestratorController
-        public ActionResult Index()
+        private readonly IRegistryManager _registryManager;
+        private readonly LoadMonitorService _loadMonitor;
+        private readonly HttpService _httpManager;
+
+        public OrchestratorController(IRegistryManager registryManagerService, LoadMonitorService loadMonitorService, HttpService httpService)
         {
-            return View();
+            _registryManager = registryManagerService;
+            _loadMonitor = loadMonitorService;
+            _httpManager = httpService;
         }
 
-        // GET: OrchestratorController/Details/5
-        public ActionResult Details(int id)
+        [HttpPost("newUav")]
+        public async Task<IActionResult> NewUav([FromBody] ChannelDTO request)
         {
-            return View();
+            var (devicePort, listeningPort) = _loadMonitor.GetMinLoadedPorts();
+
+            var telemetryResult = await _httpManager.StartTelemetryPipeline(devicePort, listeningPort, request.uavNumber);
+            if (telemetryResult != OperationResult.Success) return BadRequest("Telemetry create Pipeline failed");
+
+            await _httpManager.ConfigureSimulator(request.uavNumber, listeningPort);
+
+            return Ok();
+
         }
 
-        // GET: OrchestratorController/Create
-        public ActionResult Create()
-        {
-            return View();
-        }
-
-        // POST: OrchestratorController/Create
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public ActionResult Create(IFormCollection collection)
-        {
-            try
-            {
-                return RedirectToAction(nameof(Index));
-            }
-            catch
-            {
-                return View();
-            }
-        }
-
-        // GET: OrchestratorController/Edit/5
-        public ActionResult Edit(int id)
-        {
-            return View();
-        }
-
-        // POST: OrchestratorController/Edit/5
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public ActionResult Edit(int id, IFormCollection collection)
-        {
-            try
-            {
-                return RedirectToAction(nameof(Index));
-            }
-            catch
-            {
-                return View();
-            }
-        }
-
-        // GET: OrchestratorController/Delete/5
-        public ActionResult Delete(int id)
-        {
-            return View();
-        }
-
-        // POST: OrchestratorController/Delete/5
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public ActionResult Delete(int id, IFormCollection collection)
-        {
-            try
-            {
-                return RedirectToAction(nameof(Index));
-            }
-            catch
-            {
-                return View();
-            }
-        }
     }
 }

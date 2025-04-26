@@ -15,14 +15,24 @@ namespace TelemetryOrchestrator.Services
     {
         private readonly OrchestratorSettings _orchestratorSettings;
         private readonly IRegistryManager _registryManager;
-        private readonly Dictionary<string, string> _simulatorReassignments;
-        private readonly Dictionary<string, Process> _processes;
+        private readonly Dictionary<SimulatorInfo, string> _simulatorReassignments;
+        private readonly Dictionary<int, TelemetryDeviceInfo> _telemetryDevices;
         private readonly float _totalSystemRam;
+        private readonly PortManager _portManager;
+
+        public SortedSet<(float Load, int processId)> _deviceHeap;
+        private int _currentPort = 5000;
+        private readonly object _portLock = new object();
+
+
 
         public LoadMonitorService(OrchestratorSettings settings, IRegistryManager registryManager)
         {
             _simulatorReassignments = new();
-            _processes = new();
+            _telemetryDevices = new();
+            _deviceHeap = new(Comparer<(float Load, int processId)>.Create((a, b) => a.Load.CompareTo(b.Load)));
+            _portManager = new();
+
             _totalSystemRam = MemoryInfo.GetTotalSystemRam();
             _orchestratorSettings = settings;
             _registryManager = registryManager;
@@ -54,29 +64,36 @@ namespace TelemetryOrchestrator.Services
 
         private async Task CreateTelemetryDeviceProcces()
         {
+            var (telemetryPort, simulatorPort) = _portManager.GetNextPorts();
             try
             {
-                // Start the Telemetry Device process in a non-blocking way
                 await Task.Run(() =>
                 {
-                    string newTelemetryDeviceId = Guid.NewGuid().ToString();
-                    var startInfo = new ProcessStartInfo("dotnet", $"TelemetryDeviceApp.dll {newTelemetryDeviceId}")
+                    ProcessStartInfo startInfo = new ProcessStartInfo
                     {
-                        UseShellExecute = false, // Optional: Prevents opening a window for console apps
+                        FileName = _orchestratorSettings.TDServicePath,
+                        Arguments = $"--port={telemetryPort}",
+                        UseShellExecute = false,
                     };
 
                     Process process = Process.Start(startInfo);
-                    //var process = Process.Start($"{_orchestratorSettings.TDServicePath}", $"TelemetryDeviceApp.dll {newTelemetryDeviceId}");
-                    if (process == null)
+                    if (process != null)
                     {
-                        Console.WriteLine($"Failed to start the Telemetry Device process: {newTelemetryDeviceId}");
+                        TelemetryDeviceInfo deviceInfo = new TelemetryDeviceInfo
+                        {
+                            DevicePort = telemetryPort,
+                            ListenerPort = simulatorPort,
+                            Process = process
+                        };
+
+                        _telemetryDevices[process.Id] = deviceInfo;
+                        _registryManager.RegisterTelemetryDevice(process.Id);
+                        UpdateDeviceHeap(process.Id);
+                        Console.WriteLine($"Started process with ID: {process.Id} and Unique Identifier");
                     }
                     else
                     {
-                        //process.WaitForExit(); // Wait for the process to finish (if necessary)
-                        _processes[newTelemetryDeviceId] = process;
-                        _registryManager.RegisterTelemetryDevice(newTelemetryDeviceId);
-                        Console.WriteLine($"Started process with ID: {process.Id} and Unique Identifier: {newTelemetryDeviceId}");
+                        Console.WriteLine($"Failed to start the Telemetry Device process:");
                     }
                 });
             }
@@ -85,30 +102,50 @@ namespace TelemetryOrchestrator.Services
                 Console.WriteLine($"Got an exception when trying to create a new TelemetryDevice process: {ex}");
             }
         }
-
-        private async Task MonitorDeviceAsync(string device)
+        private void UpdateDeviceHeap(int processId)
         {
-            // Use Process.GetProcessesByName to find the process for the specific Telemetry Device
-            var processes = Process.GetProcessesByName(device);  // Assumes device name matches process name
-
-            if (processes.Length > 0)
-            {
-                Process process = processes[0];
-                float cpuUsage = GetCpuUsageForDevice(process);
-                float ramUsage = GetRamUsageForDevice(process);
-
-                //Console.WriteLine($"[Monitor] Device: {device} CPU: {cpuUsage:F1}% RAM: {ramUsage:F1}%");
-
-                // If the device is overloaded, rebalance simulators
-                if (cpuUsage > _orchestratorSettings.MaxCpuUsage || ramUsage > _orchestratorSettings.MaxRamUsage)
-                {
-                    Console.WriteLine($"[Monitor] Device {device} is overloaded, initiating rebalancing...");
-                    await RebalanceSimulatorsForDeviceAsync(device);  // Rebalance simulators for this device
-                }
-            }
+            float load = MonitorDevice(processId);
+            _deviceHeap.Add((load, processId));
         }
 
-        private async Task RebalanceSimulatorsForDeviceAsync(string overloadedDevice)
+        private float MonitorDevice(int processId)
+        {
+            Process process = Process.GetProcessById(processId);
+
+            float cpuUsage = GetCpuUsageForDevice(process);
+            float ramUsage = GetRamUsageForDevice(process);
+            return cpuUsage + ramUsage;
+
+        }
+        public (int TelemetryPort, int SimulatorPort) GetMinLoadedPorts()
+        {
+
+            if (_deviceHeap.Count == 0) return (0, 0);
+
+            var minDevice = _deviceHeap.Min;
+            var deviceInfo = _telemetryDevices[minDevice.processId];
+            return (deviceInfo.DevicePort, deviceInfo.ListenerPort);
+
+        }
+
+        private async Task<float> MonitorDeviceAsync(int processId)
+        {
+            Process process = Process.GetProcessById(processId);
+
+            float cpuUsage = GetCpuUsageForDevice(process);
+            float ramUsage = GetRamUsageForDevice(process);
+
+            if (cpuUsage > _orchestratorSettings.MaxCpuUsage || ramUsage > _orchestratorSettings.MaxRamUsage)
+            {
+                Console.WriteLine($"[Monitor] Device {processId} is overloaded, initiating rebalancing...");
+                await RebalanceSimulatorsForDeviceAsync(processId);  // Rebalance simulators for this device
+            }
+
+            return cpuUsage + ramUsage;
+
+        }
+
+        private async Task RebalanceSimulatorsForDeviceAsync(int overloadedDevice)
         {
             var devices = _registryManager.GetTelemetryDevices();
             var simulators = _registryManager.GetSimulatorsAssignedToDevice(overloadedDevice);
@@ -125,6 +162,7 @@ namespace TelemetryOrchestrator.Services
             if (!sortedDevices.Any())
             {
                 Console.WriteLine("No available devices to move simulators to.");
+                // open new teltemtry maybe
                 return;
             }
 
@@ -249,6 +287,13 @@ namespace TelemetryOrchestrator.Services
 
                 // Implement actual logic to notify the simulator (e.g., using TCP or HTTP)
                 // Here you would typically use a control channel to notify simulators of their new device address.
+            }
+        }
+        private int GetNextPort()
+        {
+            lock (_portLock)
+            {
+                return _currentPort++;
             }
         }
     }

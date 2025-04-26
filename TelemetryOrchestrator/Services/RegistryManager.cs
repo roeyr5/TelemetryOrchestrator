@@ -10,21 +10,18 @@ namespace TelemetryOrchestrator.Services
 {
     public class RegistryManager : IRegistryManager
     {
-        // This dictionary holds the telemetry devices and their assigned simulators.
-        private readonly Dictionary<string, List<string>> _telemetryDeviceSimulators;
-
-        // HashSet to hold registered telemetry devices
+        private readonly Dictionary<string, List<SimulatorInfo>> _telemetryDeviceSimulators;
         private readonly HashSet<string> _telemetryDevices;
 
         public RegistryManager(IOptions<OrchestratorSettings> settings)
         {
             _telemetryDeviceSimulators = new();
             _telemetryDevices = new();
-            _ = new LoadMonitorService(settings.Value, this);
+            //_ = new LoadMonitorService(settings.Value, this);
         }
 
         // Retrieves all simulators in the registry
-        public List<string> GetAllSimulators()
+        public List<SimulatorInfo> GetAllSimulators()
         {
             return _telemetryDeviceSimulators.Values.SelectMany(s => s).ToList();
         }
@@ -36,14 +33,14 @@ namespace TelemetryOrchestrator.Services
         }
 
         // Retrieves simulators assigned to a specific telemetry device
-        public List<string> GetSimulatorsAssignedToDevice(string telemetryDeviceId)
+        public List<SimulatorInfo> GetSimulatorsAssignedToDevice(string telemetryDeviceId)
         {
             return _telemetryDeviceSimulators.ContainsKey(telemetryDeviceId)
                 ? _telemetryDeviceSimulators[telemetryDeviceId]
-                : new List<string>();
+                : new List<SimulatorInfo>();
         }
 
-        public void RegisterSimulator(string simulatorId, string telemetryDeviceId)
+        public void RegisterSimulator(SimulatorInfo simulatorId, string telemetryDeviceId)
         {
             if (!_telemetryDevices.Contains(telemetryDeviceId))
             {
@@ -52,7 +49,7 @@ namespace TelemetryOrchestrator.Services
 
             if (!_telemetryDeviceSimulators.ContainsKey(telemetryDeviceId))
             {
-                _telemetryDeviceSimulators[telemetryDeviceId] = new List<string>();
+                _telemetryDeviceSimulators[telemetryDeviceId] = new List<SimulatorInfo>();
             }
 
             _telemetryDeviceSimulators[telemetryDeviceId].Add(simulatorId);
@@ -64,13 +61,13 @@ namespace TelemetryOrchestrator.Services
             if (!_telemetryDevices.Contains(telemetryDeviceId))
             {
                 _telemetryDevices.Add(telemetryDeviceId);
-                _telemetryDeviceSimulators[telemetryDeviceId] = new List<string>(); // Initialize with no simulators
+                _telemetryDeviceSimulators[telemetryDeviceId] = new List<SimulatorInfo>(); // Initialize with no simulators
                 Console.WriteLine($"Telemetry device {telemetryDeviceId} registered.");
             }
         }
 
         // Removes a simulator from a telemetry device
-        public void RemoveSimulator(string simulatorId)
+        public void RemoveSimulator(SimulatorInfo simulatorId)
         {
             foreach (var device in _telemetryDeviceSimulators)
             {
@@ -110,6 +107,11 @@ namespace TelemetryOrchestrator.Services
             {
                 Console.WriteLine($"Telemetry device {telemetryDeviceId} not found.");
             }
+        }
+
+        public void RemoveSimulator(string simulatorId)
+        {
+            Console.WriteLine(simulatorId);
         }
 
         private static void TerminateTelemetryDeviceProcess(string telemetryDeviceId)

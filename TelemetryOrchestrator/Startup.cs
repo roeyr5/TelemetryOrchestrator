@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using TelemetryOrchestrator.Entities;
 using TelemetryOrchestrator.Interfaces;
 using TelemetryOrchestrator.Services;
+using TelemetryOrchestrator.Services.Http_Requests;
 
 namespace TelemetryOrchestrator
 {
@@ -32,6 +33,7 @@ namespace TelemetryOrchestrator
 
             services.AddSingleton<IRegistryManager, RegistryManager>();
             services.AddHostedService<LoadMonitorService>();
+            services.AddHttpClient<HttpService>();
 
             services.AddCors(options =>
             {

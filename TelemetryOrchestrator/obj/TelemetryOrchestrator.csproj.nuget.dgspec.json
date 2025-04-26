@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\roey9\\source\\repos\\TelemetryOrchestrator\\TelemetryOrchestrator\\TelemetryOrchestrator.csproj": {}
+    "C:\\Users\\roey9\\Desktop\\TelemetryOrchestrator\\TelemetryOrchestrator\\TelemetryOrchestrator.csproj": {}
   },
   "projects": {
-    "C:\\Users\\roey9\\source\\repos\\TelemetryOrchestrator\\TelemetryOrchestrator\\TelemetryOrchestrator.csproj": {
+    "C:\\Users\\roey9\\Desktop\\TelemetryOrchestrator\\TelemetryOrchestrator\\TelemetryOrchestrator.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\roey9\\source\\repos\\TelemetryOrchestrator\\TelemetryOrchestrator\\TelemetryOrchestrator.csproj",
+        "projectUniqueName": "C:\\Users\\roey9\\Desktop\\TelemetryOrchestrator\\TelemetryOrchestrator\\TelemetryOrchestrator.csproj",
         "projectName": "TelemetryOrchestrator",
-        "projectPath": "C:\\Users\\roey9\\source\\repos\\TelemetryOrchestrator\\TelemetryOrchestrator\\TelemetryOrchestrator.csproj",
+        "projectPath": "C:\\Users\\roey9\\Desktop\\TelemetryOrchestrator\\TelemetryOrchestrator\\TelemetryOrchestrator.csproj",
         "packagesPath": "C:\\Users\\roey9\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\roey9\\source\\repos\\TelemetryOrchestrator\\TelemetryOrchestrator\\obj\\",
+        "outputPath": "C:\\Users\\roey9\\Desktop\\TelemetryOrchestrator\\TelemetryOrchestrator\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -47,6 +47,10 @@
             "Microsoft.VisualBasic": {
               "target": "Package",
               "version": "[10.3.0, )"
+            },
+            "Newtonsoft.Json": {
+              "target": "Package",
+              "version": "[13.0.3, )"
             },
             "Swashbuckle.AspNetCore": {
               "target": "Package",
