@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using System;
 using System.Collections.Generic;
@@ -30,9 +31,15 @@ namespace TelemetryOrchestrator
         public void ConfigureServices(IServiceCollection services)
         {
             services.Configure<OrchestratorSettings>(Configuration.GetSection(nameof(OrchestratorSettings)));
+            services.AddSingleton(resolver => resolver.GetRequiredService<IOptions<OrchestratorSettings>>().Value);
+
 
             services.AddSingleton<IRegistryManager, RegistryManager>();
-            services.AddHostedService<LoadMonitorService>();
+            services.AddSingleton<LoadMonitorService>();
+            services.AddSingleton<HttpService>();
+
+            services.AddHostedService(provider => provider.GetRequiredService<LoadMonitorService>()); 
+            
             services.AddHttpClient<HttpService>();
 
             services.AddCors(options =>

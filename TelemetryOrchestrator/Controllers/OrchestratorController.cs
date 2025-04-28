@@ -31,14 +31,19 @@ namespace TelemetryOrchestrator.Controllers
         [HttpPost("newUav")]
         public async Task<IActionResult> NewUav([FromBody] ChannelDTO request)
         {
-            var (devicePort, listeningPort) = _loadMonitor.GetMinLoadedPorts();
+            var (devicePort, listeningPort , deviceId) = _loadMonitor.GetMinLoadedPorts();
 
-            var telemetryResult = await _httpManager.StartTelemetryPipeline(devicePort, listeningPort, request.uavNumber);
+            OperationResult telemetryResult = await _httpManager.StartTelemetryPipeline(devicePort, listeningPort, request.uavNumber);
             if (telemetryResult != OperationResult.Success) return BadRequest("Telemetry create Pipeline failed");
 
-            await _httpManager.ConfigureSimulator(request.uavNumber, listeningPort);
+
+            OperationResult simulatorResult = await _httpManager.ConfigureSimulator(request.uavNumber, listeningPort);
+            if (simulatorResult != OperationResult.Success) return BadRequest("simulator failed");
+
+            _registryManager.RegisterSimulator(new SimulatorInfo(request.uavNumber,listeningPort),deviceId);
 
             return Ok();
+
 
         }
 

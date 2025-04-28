@@ -7,7 +7,7 @@ namespace TelemetryOrchestrator.Extentions
 {
     public class PortManager
     {
-        private int _currentTelemetryPort = 5010;
+        private int _currentTelemetryPort = 5000;
         private int _currentSimulatorPort = 4010;
         private readonly object _portLock = new();
 
@@ -15,9 +15,9 @@ namespace TelemetryOrchestrator.Extentions
         {
             lock (_portLock)
             {
-                var result = (_currentTelemetryPort, _currentSimulatorPort);
                 _currentTelemetryPort++;
                 _currentSimulatorPort += 5;
+                var result = (_currentTelemetryPort, _currentSimulatorPort);
                 return result;
             }
         }

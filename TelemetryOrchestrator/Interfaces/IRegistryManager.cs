@@ -8,25 +8,18 @@ namespace TelemetryOrchestrator.Interfaces
 {
     public interface IRegistryManager
     {
-        // Registers a simulator to a specific telemetry device
-        public void RegisterSimulator(SimulatorInfo simulatorId, string telemetryDeviceId);
+        public void RegisterSimulator(SimulatorInfo simulatorId, int telemetryDeviceId);
 
-        // Registers a new telemetry device
         public void RegisterTelemetryDevice(int telemetryDeviceId);
 
-        // Retrieves simulators assigned to a specific telemetry device
-        public List<SimulatorInfo> GetSimulatorsAssignedToDevice(string telemetryDeviceId);
+        public List<SimulatorInfo> GetSimulatorsAssignedToDevice(int telemetryDeviceId);
 
-        // Retrieves all simulators in the registry
         public List<SimulatorInfo> GetAllSimulators();
 
-        // Retrieves all telemetry devices
-        public List<string> GetTelemetryDevices();
+        public List<int> GetTelemetryDevices();
 
-        // Removes a simulator from a telemetry device
         public void RemoveSimulator(string simulatorId);
 
-        // Removes a telemetry device and its simulators
-        public void RemoveTelemetryDevice(string telemetryDeviceId);
+        public void RemoveTelemetryDevice(int telemetryDeviceId);
     }
 }
