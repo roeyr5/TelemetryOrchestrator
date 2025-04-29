@@ -31,7 +31,7 @@ namespace TelemetryOrchestrator.Extentions
 
         public static float GetTotalPhysicalMemory()
         {
-            MEMORYSTATUSEX memStatus = new MEMORYSTATUSEX();
+            MEMORYSTATUSEX memStatus = new();
             if (GlobalMemoryStatusEx(memStatus))
             {
                 return (float)(memStatus.ullTotalPhys / 1024 / 1024);
@@ -50,16 +50,13 @@ namespace TelemetryOrchestrator.Extentions
             float cpuUsage = await GetCpuUsageForDeviceAsync(process);
             float ramUsage = GetRamUsageForDevice(process);
 
-            // Normalize CPU usage (0 to 1 scale)
-            float normalizedCpuUsage = cpuUsage / 100.0f;  // Convert to 0-1 scale
+            float normalizedCpuUsage = cpuUsage / 100.0f;  //0-1 
 
-            // Normalize RAM usage (0 to 1 scale based on total system RAM)
-            float normalizedRamUsage = ramUsage / totalSystemRam;  // Convert RAM usage to 0-1 scale
+            float normalizedRamUsage = ramUsage / totalSystemRam;  //0-1
 
-            // Combine the normalized CPU and RAM usage
             float combinedLoad = normalizedCpuUsage + normalizedRamUsage;
 
-            return combinedLoad;  // Combined load between 0 and 2
+            return combinedLoad;  // 0-2
 
             //return 0.0f; 
         }

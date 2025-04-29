@@ -14,5 +14,21 @@ namespace TelemetryOrchestrator.Entities
         }
         public int UavNumber { get; set; }
         public int ControlEndPoint { get; set; }
+
+        public override bool Equals(object obj)
+        {
+            if (obj is SimulatorInfo other)
+            {
+                return this.UavNumber == other.UavNumber &&
+                       this.ControlEndPoint == other.ControlEndPoint;
+            }
+
+            return false;
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(UavNumber, ControlEndPoint);
+        }
     }
 }

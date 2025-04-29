@@ -18,7 +18,7 @@ namespace TelemetryOrchestrator.Interfaces
 
         public List<int> GetTelemetryDevices();
 
-        public void RemoveSimulator(string simulatorId);
+        public void UnRegisterSimulator(SimulatorInfo simulatorId, int telemetryDeviceId);
 
         public void RemoveTelemetryDevice(int telemetryDeviceId);
     }

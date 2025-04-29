@@ -3,33 +3,38 @@ using System.Text;
 using System.Threading.Tasks;
 using TelemetryOrchestrator.Extentions;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 
 namespace TelemetryOrchestrator.Services.Http_Requests
 {
     public class HttpService
     {
         private readonly HttpClient _httpClient;
-        private const int simulatorPort = 7000;
+        private readonly string _baseUrl;
+        private readonly int _simulatorPort;
 
         public static object JsonConvert { get; private set; }
 
-        public HttpService(HttpClient httpClient)
+        public HttpService(HttpClient httpClient , IConfiguration configuration)
         {
             _httpClient = httpClient;
+            _baseUrl = configuration.GetValue<string>("ApiSettings:BaseUrl");
+            _simulatorPort = configuration.GetValue<int>("ApiSettings:SimulatorPort");
+
         }
 
         public async Task<OperationResult> StartTelemetryPipeline(int devicePort, int udpPort, int uavNumber)
         {
-            ChannelDTO channelDto = new ChannelDTO
+            ChannelDTO channelDto = new()
             {
                 uavNumber = uavNumber,
                 port = udpPort
             };
 
             string serializedData = JsonSerializer.Serialize(channelDto);
-            StringContent content = new StringContent(serializedData, Encoding.UTF8, "application/json");
+            StringContent content = new(serializedData, Encoding.UTF8, "application/json");
 
-            HttpResponseMessage response = await _httpClient.PostAsync($"http://localhost:{devicePort}/Start", content);
+            HttpResponseMessage response = await _httpClient.PostAsync($"{_baseUrl}:{devicePort}/Start", content);
 
             return response.IsSuccessStatusCode
                 ? OperationResult.Success
@@ -38,34 +43,34 @@ namespace TelemetryOrchestrator.Services.Http_Requests
 
         public async Task<OperationResult> ConfigureSimulator(int uavNumber, int udpPort)
         {
-            ChannelDTO channelDto = new ChannelDTO
+            ChannelDTO channelDto = new()
             {
                 uavNumber = uavNumber,
                 port = udpPort
             };
 
             string serializedData = JsonSerializer.Serialize(channelDto);
-            StringContent content = new StringContent(serializedData, Encoding.UTF8, "application/json");
+            StringContent content = new(serializedData, Encoding.UTF8, "application/json");
 
-            HttpResponseMessage response = await _httpClient.PostAsync($"http://localhost:{simulatorPort}/simulator/StartIcd", content);
+            HttpResponseMessage response = await _httpClient.PostAsync($"{_baseUrl}:{_simulatorPort}/simulator/StartIcd", content);
 
             return response.IsSuccessStatusCode
                 ? OperationResult.Success
                 : OperationResult.Failed;
         }
 
-        public async Task<OperationResult> ReconfigureSimulatorEndpoint(int uavNumber, int listenPort , int devicePort)
+        public async Task<OperationResult> ReconfigureSimulatorEndpoint(int uavNumber, int listenPort, int devicePort)
         {
-            ChannelDTO changeEndPointDto = new ChannelDTO
+            ChannelDTO changeEndPointDto = new()
             {
                 uavNumber = uavNumber,
                 port = listenPort
             };
 
             string serializedData = JsonSerializer.Serialize(changeEndPointDto);
-            StringContent content = new StringContent(serializedData, Encoding.UTF8, "application/json");
+            StringContent content = new(serializedData, Encoding.UTF8, "application/json");
 
-            HttpResponseMessage response = await _httpClient.PutAsync($"http://localhost:{simulatorPort}/simulator/ChangeEndPoints", content);
+            HttpResponseMessage response = await _httpClient.PutAsync($"{_baseUrl}:{_simulatorPort}/simulator/ChangeEndPoints", content);
             await StartTelemetryPipeline(devicePort, listenPort, uavNumber);
 
             return response.IsSuccessStatusCode

@@ -13,7 +13,7 @@ namespace TelemetryOrchestrator.Services
         private readonly Dictionary<int, List<SimulatorInfo>> _telemetryDeviceSimulators;
         private readonly HashSet<int> _telemetryDevices;
 
-        public RegistryManager(IOptions<OrchestratorSettings> settings)
+        public RegistryManager()
         {
             _telemetryDeviceSimulators = new();
             _telemetryDevices = new();
@@ -111,10 +111,15 @@ namespace TelemetryOrchestrator.Services
             }
         }
 
-        public void RemoveSimulator(string simulatorId)
+        public void UnRegisterSimulator(SimulatorInfo simulatorId, int telemetryDeviceId)
         {
-            Console.WriteLine(simulatorId);
+            if (_telemetryDeviceSimulators.ContainsKey(telemetryDeviceId))
+            {
+                _telemetryDeviceSimulators[telemetryDeviceId].Remove(simulatorId);
+                Console.WriteLine($"Simulator {simulatorId} unregistered from {telemetryDeviceId}");
+            }
         }
+
 
         private static void TerminateTelemetryDeviceProcess(int telemetryDeviceId)
         {
