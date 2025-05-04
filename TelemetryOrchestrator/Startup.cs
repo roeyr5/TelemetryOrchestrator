@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using TelemetryOrchestrator.Entities;
+using TelemetryOrchestrator.Hubs;
 using TelemetryOrchestrator.Interfaces;
 using TelemetryOrchestrator.Services;
 using TelemetryOrchestrator.Services.Http_Requests;
@@ -33,7 +34,7 @@ namespace TelemetryOrchestrator
             services.Configure<OrchestratorSettings>(Configuration.GetSection(nameof(OrchestratorSettings)));
             services.AddSingleton(resolver => resolver.GetRequiredService<IOptions<OrchestratorSettings>>().Value);
 
-
+            services.AddSignalR();
             services.AddSingleton<IRegistryManager, RegistryManager>();
             services.AddSingleton<LoadMonitorService>();
             services.AddSingleton<HttpService>();
@@ -42,15 +43,16 @@ namespace TelemetryOrchestrator
             
             services.AddHttpClient<HttpService>();
 
+            
             services.AddCors(options =>
             {
-                options.AddPolicy("AllowAll",
-                    builder =>
-                    {
-                        builder.AllowAnyOrigin()
-                               .AllowAnyMethod()
-                               .AllowAnyHeader();
-                    });
+                options.AddPolicy("AllowAngularApp", builder =>
+                {
+                    builder.WithOrigins("http://localhost:4200")
+                           .AllowAnyMethod()
+                           .AllowAnyHeader()
+                           .AllowCredentials();
+                });
             });
             services.AddControllers();
             services.AddSwaggerGen(c =>
@@ -69,15 +71,18 @@ namespace TelemetryOrchestrator
                 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "TelemetryOrchestrator v1"));
             }
 
-            app.UseCors("AllowAll");
-
             app.UseRouting();
 
+            app.UseCors("AllowAngularApp");
+
+            app.UseWebSockets();
+            
             app.UseAuthorization();
 
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
+                endpoints.MapHub<LiveHub>("/livehub");
             });
         }
     }

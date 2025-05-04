@@ -1,12 +1,15 @@
-﻿using Microsoft.Extensions.Hosting;
+﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Hosting;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TelemetryOrchestrator.Entities;
 using TelemetryOrchestrator.Extentions;
+using TelemetryOrchestrator.Hubs;
 using TelemetryOrchestrator.Interfaces;
 using TelemetryOrchestrator.Services.Http_Requests;
 
@@ -17,6 +20,7 @@ namespace TelemetryOrchestrator.Services
         private readonly OrchestratorSettings _orchestratorSettings;
         private readonly IRegistryManager _registryManager;
         private readonly HttpService _httpService;
+        private readonly IHubContext<LiveHub> _hubContext;
 
         private readonly Dictionary<SimulatorInfo, int> _simulatorReassignments;
         private readonly Dictionary<int, TelemetryDeviceInfo> _telemetryDevices;
@@ -25,10 +29,9 @@ namespace TelemetryOrchestrator.Services
 
         public SortedSet<(float Load, int processId)> _deviceHeap;
 
-
-
-        public LoadMonitorService(OrchestratorSettings settings, IRegistryManager registryManager, HttpService httpService)
+        public LoadMonitorService(OrchestratorSettings settings, IRegistryManager registryManager, HttpService httpService, IHubContext<LiveHub> hubContext)
         {
+            _hubContext = hubContext;
             _simulatorReassignments = new();
             _telemetryDevices = new();
             _deviceHeap = new(Comparer<(float Load, int processId)>.Create((a, b) => a.Load.CompareTo(b.Load)));
@@ -57,9 +60,43 @@ namespace TelemetryOrchestrator.Services
 
                 await RebalanceSimulators();
 
+                await BroadcastOrchestratorUpdate();
+
                 await Task.Delay(5000, stoppingToken);
             }
             Console.WriteLine("exception");
+        }
+
+        private async Task BroadcastOrchestratorUpdate()
+        {
+            try
+            {
+                Dictionary<int, OrchestratorUpdateDto> orchestratorUpdate = new();
+
+                foreach (var element in _telemetryDevices)
+                {
+                    int deviceId = element.Key;
+                    TelemetryDeviceInfo deviceInfo = element.Value;
+
+                    Console.WriteLine($"Broadcasting for device {deviceId}");
+
+                    List<SimulatorInfo> simulators = _registryManager.GetSimulatorsAssignedToDevice(deviceId);
+
+                    orchestratorUpdate[deviceId] = new OrchestratorUpdateDto
+                    {
+                        Device = deviceInfo,
+                        Simulators = simulators
+                    };
+                }
+                var json = JsonSerializer.Serialize(orchestratorUpdate); // Test serialization
+                Console.WriteLine($"Serialized data: {json}");
+                await _hubContext.Clients.All.SendAsync("OrchestratorUpdate", orchestratorUpdate);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"error is : {ex}");
+            }
+
         }
 
         private static bool IsPortAvailable(int port)
@@ -169,33 +206,35 @@ namespace TelemetryOrchestrator.Services
                 float cpuUsage = await MemoryInfo.GetCpuUsageForDeviceAsync(device);
                 float ramUsage = MemoryInfo.GetRamUsageForDevice(device);
 
-                float cpuPercentage = cpuUsage / _orchestratorSettings.MaxCpuUsage * 100;
-                float ramPercentage = ramUsage / _orchestratorSettings.MaxRamUsage * 100;
-
-                if (cpuPercentage <= 0.8 * _orchestratorSettings.MaxCpuUsage || ramPercentage <= 0.8 * _orchestratorSettings.MaxRamUsage)
+                if (ramUsage <= 0.9 * _orchestratorSettings.MaxCpuUsage || cpuUsage <= 0.9 * _orchestratorSettings.MaxCpuUsage)
                 {
-                    float load = cpuUsage + ramUsage;
+                    float load = await MemoryInfo.GetDeviceLoad(processId, _totalSystemRam);
                     sortedDevices.Add((load, processId));
                 }
                 else
                 {
-                    Console.WriteLine($"Device {device} is overloaded with CPU: {cpuPercentage}% and RAM: {ramPercentage}%");
+                    Console.WriteLine($"Device {device} is overloaded with CPU: {cpuUsage}% and RAM: {ramUsage}%");
                 }
             }
 
-            int newDeviceId = await EnsureDeviceAvailability(sortedDevices);
 
             foreach (var device in devices)
             {
                 List<SimulatorInfo> assignedSimulators = _registryManager.GetSimulatorsAssignedToDevice(device);
                 if (assignedSimulators.Count > _orchestratorSettings.MaxSimulatorsPerTD)
                 {
+                    sortedDevices.RemoveWhere(d => d.deviceId == device);
+
+                    int newDeviceId = await EnsureDeviceAvailability(sortedDevices);
+
                     int simulatorsToMove = (int)Math.Floor(assignedSimulators.Count * 0.5);
 
                     foreach (SimulatorInfo simulator in assignedSimulators.Take(simulatorsToMove))
                     {
                         var target = sortedDevices.FirstOrDefault(d => d.deviceId != device);
-                        if (target.deviceId > 0)
+                        int targetDeviceId = target.deviceId > 0 ? target.deviceId : newDeviceId;
+
+                        if (target.deviceId > 0 && targetDeviceId != device)
                         {
                             _registryManager.RegisterSimulator(simulator, target.deviceId);
                             _simulatorReassignments[simulator] = target.deviceId;

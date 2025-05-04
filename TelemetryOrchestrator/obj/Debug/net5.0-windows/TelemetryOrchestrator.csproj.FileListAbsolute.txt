@@ -56,3 +56,10 @@ C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\runtimes\win\lib\netstandard2.0\System.Security.Cryptography.ProtectedData.dll
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\runtimes\win\lib\netcoreapp3.1\System.Windows.Extensions.dll
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net5.0-windows\TelemetryOrchestrator.csproj.AssemblyReference.cache
+C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\Microsoft.Extensions.Primitives.dll
+C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\System.IO.Pipelines.dll
+C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\Microsoft.AspNetCore.Connections.Abstractions.dll
+C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\Microsoft.AspNetCore.Http.Features.dll
+C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\Microsoft.AspNetCore.SignalR.Common.dll
+C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\Microsoft.AspNetCore.SignalR.Protocols.Json.dll
+C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\System.Net.WebSockets.WebSocketProtocol.dll
