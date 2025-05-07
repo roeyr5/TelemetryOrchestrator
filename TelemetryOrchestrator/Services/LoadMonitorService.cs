@@ -28,7 +28,7 @@ namespace TelemetryOrchestrator.Services
         private readonly PortManager _portManager;
 
         public SortedSet<(float Load, int processId)> _deviceHeap;
-
+        
         public LoadMonitorService(OrchestratorSettings settings, IRegistryManager registryManager, HttpService httpService, IHubContext<LiveHub> hubContext)
         {
             _hubContext = hubContext;
@@ -58,10 +58,11 @@ namespace TelemetryOrchestrator.Services
                             await NewTelemetryDeviceProcces();
                         }
 
-                        //var tasks = devices.Select(device => CheckAndRebalanceDeviceLoadAsync(device));
-                        //await Task.WhenAll(tasks);
+                        var tasks = devices.Select(device => CheckAndRebalanceDeviceLoadAsync(device));
+                        await Task.WhenAll(tasks);
 
                         await RebalanceSimulators();
+
                         await BroadcastOrchestratorUpdate();
                     }
                     catch (Exception ex)
@@ -76,37 +77,6 @@ namespace TelemetryOrchestrator.Services
             {
                 Console.WriteLine("exception : " + e);
             }
-        }
-
-        private async Task BroadcastOrchestratorUpdate()
-        {
-            try
-            {
-                Dictionary<int, OrchestratorUpdateDto> orchestratorUpdate = new();
-
-                foreach (var element in _telemetryDevices)
-                {
-                    int deviceId = element.Key;
-                    TelemetryDeviceInfo deviceInfo = element.Value;
-
-                    Console.WriteLine($"Broadcasting for device {deviceId}");
-
-                    List<SimulatorInfo> simulators = _registryManager.GetSimulatorsAssignedToDevice(deviceId);
-
-                    orchestratorUpdate[deviceId] = new OrchestratorUpdateDto
-                    {
-                        Device = deviceInfo,
-                        Simulators = simulators
-                    };
-                }
-
-                await _hubContext.Clients.All.SendAsync("OrchestratorUpdate", orchestratorUpdate);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"error is : {ex}");
-            }
-
         }
 
         private static bool IsPortAvailable(int port)
@@ -216,7 +186,7 @@ namespace TelemetryOrchestrator.Services
                 float cpuUsage = await MemoryInfo.GetCpuUsageForDeviceAsync(device);
                 float ramUsage = MemoryInfo.GetRamUsageForDevice(device);
 
-                if (ramUsage <= 0.9 * _orchestratorSettings.MaxCpuUsage || cpuUsage <= 0.9 * _orchestratorSettings.MaxCpuUsage)
+                if (ramUsage <= 0.9 * _orchestratorSettings.MaxRamUsage || cpuUsage <= 0.9 * _orchestratorSettings.MaxCpuUsage)
                 {
                     float load = await MemoryInfo.GetDeviceLoad(processId, _totalSystemRam);
                     sortedDevices.Add((load, processId));
@@ -263,6 +233,11 @@ namespace TelemetryOrchestrator.Services
             await NotifySimulatorsOfNewAssignments();
         }
 
+        //private void CheckOverloadDevice()
+        //{
+
+        //} 
+
         private async Task<int> NewTelemetryDeviceProcces()
         {
             var (telemetryPort, simulatorPort) = _portManager.GetNextPorts();
@@ -278,7 +253,7 @@ namespace TelemetryOrchestrator.Services
                 {
                     FileName = _orchestratorSettings.TDServicePath,
                     Arguments = $"--port={telemetryPort}",
-                    UseShellExecute = true,
+                    UseShellExecute = false,
                     CreateNoWindow = false,
                     WindowStyle = ProcessWindowStyle.Normal
                 };
@@ -297,6 +272,7 @@ namespace TelemetryOrchestrator.Services
                     _registryManager.RegisterTelemetryDevice(process.Id);
 
                     await UpdateDeviceHeap(process.Id);
+                    await NotificationOfNewDevice(process.Id);
 
                     Console.WriteLine($"Started process with ID: {process.Id} and Unique Identifier");
                     return process.Id;
@@ -321,6 +297,10 @@ namespace TelemetryOrchestrator.Services
                 int oldDeviceId = _telemetryDevices.FirstOrDefault(kv => _registryManager.GetSimulatorsAssignedToDevice(kv.Key).Contains(simulatorInfo)).Key;
                 int newDeviceId = simulator.Value;
 
+                if(oldDeviceId == newDeviceId)
+                {
+                    newDeviceId = await NewTelemetryDeviceProcces();
+                }
                 _registryManager.UnRegisterSimulator(simulatorInfo, oldDeviceId);
 
                 TelemetryDeviceInfo targetTelemetryDevice = _telemetryDevices[newDeviceId];
@@ -336,7 +316,6 @@ namespace TelemetryOrchestrator.Services
                     simulatorInfo.ControlEndPoint = udpPort;
                     await NotificationOfNewAssign(uavNumber, oldDeviceId, newDeviceId);
                     await BroadcastOrchestratorUpdate();
-
                 }
                 else
                 {
@@ -345,6 +324,62 @@ namespace TelemetryOrchestrator.Services
 
             }
             _simulatorReassignments.Clear();
+        }
+
+        private async Task<int> EnsureDeviceAvailability(SortedSet<(float load, int deviceId)> sortedDevices)
+        {
+            if (sortedDevices.Any())
+            {
+                var (minLoad, minDeviceId) = sortedDevices.Min;
+                return minDeviceId;
+            }
+
+            Console.WriteLine("No available devices to move simulators to. Spinning up a new one...");
+
+            int newDeviceId = await NewTelemetryDeviceProcces();
+            if (newDeviceId != -1)
+            {
+                float load = await MemoryInfo.GetDeviceLoad(newDeviceId, _totalSystemRam);
+                sortedDevices.Add((load, newDeviceId));
+            }
+            else
+            {
+                Console.WriteLine("[EnsureDeviceAvailability] Failed to start a new telemetry device.");
+            }
+
+            return newDeviceId;
+        }
+
+
+        private async Task BroadcastOrchestratorUpdate()
+        {
+            try
+            {
+                Dictionary<int, OrchestratorUpdateDto> orchestratorUpdate = new();
+
+                foreach (var element in _telemetryDevices)
+                {
+                    int deviceId = element.Key;
+                    TelemetryDeviceInfo deviceInfo = element.Value;
+
+                    Console.WriteLine($"update client for device id - {deviceId}");
+
+                    List<SimulatorInfo> simulators = _registryManager.GetSimulatorsAssignedToDevice(deviceId);
+
+                    orchestratorUpdate[deviceId] = new OrchestratorUpdateDto
+                    {
+                        Device = deviceInfo,
+                        Simulators = simulators
+                    };
+                }
+
+                await _hubContext.Clients.All.SendAsync("OrchestratorUpdate", orchestratorUpdate);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"error is : {ex}");
+            }
+
         }
 
         private async Task NotificationOfNewAssign(int uavNumber, int oldDeviceId, int newDeviceId)
@@ -358,24 +393,12 @@ namespace TelemetryOrchestrator.Services
 
             await _hubContext.Clients.All.SendAsync("SimulatorAssignment", newAssign);
         }
-        private async Task<int> EnsureDeviceAvailability(SortedSet<(float load, int deviceId)> sortedDevices)
+
+        private async Task NotificationOfNewDevice(int newDeviceId)
         {
-            if (!sortedDevices.Any())
-            {
-                Console.WriteLine("No available devices to move simulators to.");
-
-                int newDeviceId = await NewTelemetryDeviceProcces();
-                if (newDeviceId != -1)
-                {
-                    float load = await MemoryInfo.GetDeviceLoad(newDeviceId, _totalSystemRam);
-                    sortedDevices.Add((load, newDeviceId));
-                }
-
-                return newDeviceId;
-            }
-
-            return -1;
+            await _hubContext.Clients.All.SendAsync("DeviceCreated", newDeviceId);
         }
+
 
     }
 }
