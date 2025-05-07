@@ -5,7 +5,6 @@ C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\TelemetryOrchestrator.runtimeconfig.json
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\TelemetryOrchestrator.runtimeconfig.dev.json
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\TelemetryOrchestrator.dll
-C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\ref\TelemetryOrchestrator.dll
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\TelemetryOrchestrator.pdb
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\Microsoft.OpenApi.dll
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\Newtonsoft.Json.dll
@@ -22,10 +21,8 @@ C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net5.0-windows\TelemetryOrchestrator.MvcApplicationPartsAssemblyInfo.cs
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net5.0-windows\TelemetryOrchestrator.MvcApplicationPartsAssemblyInfo.cache
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net5.0-windows\staticwebassets\TelemetryOrchestrator.StaticWebAssets.Manifest.cache
-C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net5.0-windows\staticwebassets\TelemetryOrchestrator.StaticWebAssets.xml
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net5.0-windows\scopedcss\bundle\TelemetryOrchestrator.styles.css
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net5.0-windows\TelemetryOrchestrator.RazorTargetAssemblyInfo.cache
-C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net5.0-windows\TelemetryOrchestrator.csproj.CopyComplete
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net5.0-windows\TelemetryOrchestrator.dll
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net5.0-windows\ref\TelemetryOrchestrator.dll
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net5.0-windows\TelemetryOrchestrator.pdb
@@ -63,3 +60,6 @@ C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\Microsoft.AspNetCore.SignalR.Common.dll
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\Microsoft.AspNetCore.SignalR.Protocols.Json.dll
 C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\System.Net.WebSockets.WebSocketProtocol.dll
+C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\bin\Debug\net5.0-windows\ref\TelemetryOrchestrator.dll
+C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net5.0-windows\staticwebassets\TelemetryOrchestrator.StaticWebAssets.xml
+C:\Users\roey9\Desktop\TelemetryOrchestrator\TelemetryOrchestrator\obj\Debug\net5.0-windows\TelemetryOrchestrator.csproj.CopyComplete

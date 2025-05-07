@@ -45,26 +45,37 @@ namespace TelemetryOrchestrator.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                // Get all telemetry devices
-                var devices = _registryManager.GetTelemetryDevices();
-                if (devices.Count == 0)
+
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    await NewTelemetryDeviceProcces();
+                    try
+                    {
+                        var devices = _registryManager.GetTelemetryDevices();
+                        if (devices.Count == 0)
+                        {
+                            await NewTelemetryDeviceProcces();
+                        }
+
+                        //var tasks = devices.Select(device => CheckAndRebalanceDeviceLoadAsync(device));
+                        //await Task.WhenAll(tasks);
+
+                        await RebalanceSimulators();
+                        await BroadcastOrchestratorUpdate();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"[LoadMonitor] Loop error: {ex}");
+                    }
+
+                    await Task.Delay(5000, stoppingToken);
                 }
-
-                var tasks = devices.Select(device => CheckAndRebalanceDeviceLoadAsync(device)).ToList();
-
-                await Task.WhenAll(tasks);
-
-                await RebalanceSimulators();
-
-                await BroadcastOrchestratorUpdate();
-
-                await Task.Delay(5000, stoppingToken);
             }
-            Console.WriteLine("exception");
+            catch (Exception e)
+            {
+                Console.WriteLine("exception : " + e);
+            }
         }
 
         private async Task BroadcastOrchestratorUpdate()
@@ -88,8 +99,7 @@ namespace TelemetryOrchestrator.Services
                         Simulators = simulators
                     };
                 }
-                var json = JsonSerializer.Serialize(orchestratorUpdate); // Test serialization
-                Console.WriteLine($"Serialized data: {json}");
+
                 await _hubContext.Clients.All.SendAsync("OrchestratorUpdate", orchestratorUpdate);
             }
             catch (Exception ex)
@@ -167,12 +177,12 @@ namespace TelemetryOrchestrator.Services
 
             int simulatorsToMove = (int)Math.Floor(simulators.Count * 0.5);
 
-            foreach (var simulator in simulators.Take(simulatorsToMove))
+            foreach (SimulatorInfo simulator in simulators.Take(simulatorsToMove))
             {
                 if (sortedDevices.Any())
                 {
                     var leastLoadedDevice = sortedDevices.Min;
-                    var leastLoadedDeviceName = leastLoadedDevice.deviceId;
+                    int leastLoadedDeviceName = leastLoadedDevice.deviceId;
 
                     _registryManager.RegisterSimulator(simulator, leastLoadedDeviceName);
                     Console.WriteLine($"[LoadMonitor] Reassigned simulator {simulator} to {leastLoadedDeviceName}");
@@ -311,21 +321,22 @@ namespace TelemetryOrchestrator.Services
                 int oldDeviceId = _telemetryDevices.FirstOrDefault(kv => _registryManager.GetSimulatorsAssignedToDevice(kv.Key).Contains(simulatorInfo)).Key;
                 int newDeviceId = simulator.Value;
 
-                if (oldDeviceId != 0 && oldDeviceId != newDeviceId)
-                {
-                    _registryManager.UnRegisterSimulator(simulatorInfo, oldDeviceId);
-                }
+                _registryManager.UnRegisterSimulator(simulatorInfo, oldDeviceId);
 
                 TelemetryDeviceInfo targetTelemetryDevice = _telemetryDevices[newDeviceId];
 
                 int uavNumber = simulatorInfo.UavNumber;
                 int udpPort = targetTelemetryDevice.ListenerPort;
 
-                OperationResult result = await _httpService.ReconfigureSimulatorEndpoint(newDeviceId, uavNumber, udpPort);
+
+                OperationResult result = await _httpService.ReconfigureSimulatorEndpoint(uavNumber, udpPort, targetTelemetryDevice.DevicePort);
 
                 if (result == OperationResult.Success)
                 {
                     simulatorInfo.ControlEndPoint = udpPort;
+                    await NotificationOfNewAssign(uavNumber, oldDeviceId, newDeviceId);
+                    await BroadcastOrchestratorUpdate();
+
                 }
                 else
                 {
@@ -336,6 +347,17 @@ namespace TelemetryOrchestrator.Services
             _simulatorReassignments.Clear();
         }
 
+        private async Task NotificationOfNewAssign(int uavNumber, int oldDeviceId, int newDeviceId)
+        {
+            SimulatorReassign newAssign = new()
+            {
+                UavNumber = uavNumber,
+                OldDeviceId = oldDeviceId,
+                NewDeviceId = newDeviceId
+            };
+
+            await _hubContext.Clients.All.SendAsync("SimulatorAssignment", newAssign);
+        }
         private async Task<int> EnsureDeviceAvailability(SortedSet<(float load, int deviceId)> sortedDevices)
         {
             if (!sortedDevices.Any())

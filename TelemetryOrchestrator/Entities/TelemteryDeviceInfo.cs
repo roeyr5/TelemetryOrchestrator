@@ -22,4 +22,10 @@ namespace TelemetryOrchestrator.Entities
         public TelemetryDeviceInfo Device { get; set; }
         public List<SimulatorInfo> Simulators { get; set; }
     }
+    public class SimulatorReassign
+    {
+        public int UavNumber { get; set; }
+        public int OldDeviceId { get; set; }
+        public int NewDeviceId { get; set; }
+    }
 }

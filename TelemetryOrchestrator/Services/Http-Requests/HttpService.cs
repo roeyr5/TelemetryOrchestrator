@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using TelemetryOrchestrator.Extentions;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
+using System;
 
 namespace TelemetryOrchestrator.Services.Http_Requests
 {
@@ -15,7 +16,7 @@ namespace TelemetryOrchestrator.Services.Http_Requests
 
         public static object JsonConvert { get; private set; }
 
-        public HttpService(HttpClient httpClient , IConfiguration configuration)
+        public HttpService(HttpClient httpClient, IConfiguration configuration)
         {
             _httpClient = httpClient;
             _baseUrl = configuration.GetValue<string>("ApiSettings:BaseUrl");
@@ -25,20 +26,29 @@ namespace TelemetryOrchestrator.Services.Http_Requests
 
         public async Task<OperationResult> StartTelemetryPipeline(int devicePort, int udpPort, int uavNumber)
         {
-            ChannelDTO channelDto = new()
+            try
             {
-                uavNumber = uavNumber,
-                port = udpPort
-            };
 
-            string serializedData = JsonSerializer.Serialize(channelDto);
-            StringContent content = new(serializedData, Encoding.UTF8, "application/json");
+                ChannelDTO channelDto = new()
+                {
+                    uavNumber = uavNumber,
+                    port = udpPort
+                };
 
-            HttpResponseMessage response = await _httpClient.PostAsync($"{_baseUrl}:{devicePort}/Start", content);
+                string serializedData = JsonSerializer.Serialize(channelDto);
+                StringContent content = new(serializedData, Encoding.UTF8, "application/json");
 
-            return response.IsSuccessStatusCode
-                ? OperationResult.Success
-                : OperationResult.Failed;
+                HttpResponseMessage response = await _httpClient.PostAsync($"{_baseUrl}:{devicePort}/Start", content);
+
+                return response.IsSuccessStatusCode
+                    ? OperationResult.Success
+                    : OperationResult.Failed;
+            }
+            catch(Exception e)
+            {
+                System.Console.WriteLine("error" +e);
+                return OperationResult.Failed;
+            }
         }
 
         public async Task<OperationResult> ConfigureSimulator(int uavNumber, int udpPort)

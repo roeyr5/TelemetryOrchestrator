@@ -28,6 +28,7 @@ namespace TelemetryOrchestrator.Controllers
             _httpManager = httpService;
         }
 
+
         [HttpPost("newUav")]
         public async Task<IActionResult> NewUav([FromBody] ChannelDTO request)
         {
@@ -36,15 +37,12 @@ namespace TelemetryOrchestrator.Controllers
             OperationResult telemetryResult = await _httpManager.StartTelemetryPipeline(devicePort, listeningPort, request.uavNumber);
             if (telemetryResult != OperationResult.Success) return BadRequest("Telemetry create Pipeline failed");
 
-
             OperationResult simulatorResult = await _httpManager.ConfigureSimulator(request.uavNumber, listeningPort);
             if (simulatorResult != OperationResult.Success) return BadRequest("simulator failed");
 
             _registryManager.RegisterSimulator(new SimulatorInfo(request.uavNumber,listeningPort),deviceId);
 
             return Ok();
-
-
         }
 
     }
