@@ -28,7 +28,6 @@ namespace TelemetryOrchestrator.Services.Http_Requests
         {
             try
             {
-
                 ChannelDTO channelDto = new()
                 {
                     uavNumber = uavNumber,
