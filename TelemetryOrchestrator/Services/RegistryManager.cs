@@ -20,19 +20,14 @@ namespace TelemetryOrchestrator.Services
             //_ = new LoadMonitorService(settings.Value, this);
         }
 
-        // Retrieves all simulators in the registry
         public List<SimulatorInfo> GetAllSimulators()
         {
             return _telemetryDeviceSimulators.Values.SelectMany(s => s).ToList();
         }
-
-        // Retrieves all telemetry devices
         public List<int> GetTelemetryDevices()
         {
             return _telemetryDevices.ToList();
         }
-
-        // Retrieves simulators assigned to a specific telemetry device
         public List<SimulatorInfo> GetSimulatorsAssignedToDevice(int telemetryDeviceId)
         {
             return _telemetryDeviceSimulators.ContainsKey(telemetryDeviceId)
@@ -66,8 +61,6 @@ namespace TelemetryOrchestrator.Services
             }
         }
 
-
-        // Removes a simulator from a telemetry device
         public void RemoveSimulator(SimulatorInfo simulatorId)
         {
             foreach (var device in _telemetryDeviceSimulators)
@@ -88,14 +81,11 @@ namespace TelemetryOrchestrator.Services
         {
             if (_telemetryDevices.Contains(telemetryDeviceId))
             {
-                // Check if the device has any simulators assigned to it
                 if (!_telemetryDeviceSimulators.ContainsKey(telemetryDeviceId) || _telemetryDeviceSimulators[telemetryDeviceId].Count == 0)
                 {
-                    // No simulators assigned, remove the telemetry device from the registry
                     _telemetryDevices.Remove(telemetryDeviceId);
                     _telemetryDeviceSimulators.Remove(telemetryDeviceId);
 
-                    // Attempt to terminate the process associated with the telemetry device
                     TerminateTelemetryDeviceProcess(telemetryDeviceId);
 
                     Console.WriteLine($"Telemetry device {telemetryDeviceId} has no simulators and has been removed.");
@@ -111,15 +101,20 @@ namespace TelemetryOrchestrator.Services
             }
         }
 
-        public void UnRegisterSimulator(SimulatorInfo simulatorId, int telemetryDeviceId)
+        public void UnRegisterSimulator(SimulatorInfo simulator, int telemetryDeviceId)
         {
             if (_telemetryDeviceSimulators.ContainsKey(telemetryDeviceId))
             {
-                _telemetryDeviceSimulators[telemetryDeviceId].Remove(simulatorId);
-                Console.WriteLine($"Simulator {simulatorId} unregistered from {telemetryDeviceId}");
+                _telemetryDeviceSimulators[telemetryDeviceId].Remove(simulator);
+                Console.WriteLine($"Simulator {simulator} unregistered from {telemetryDeviceId}");
             }
         }
 
+        public void UpdateSimulatorAssignment(SimulatorInfo simulator, int fromDeviceId, int toDeviceId)
+        {
+            UnRegisterSimulator(simulator, fromDeviceId);
+            RegisterSimulator(simulator, toDeviceId);
+        }
 
         private static void TerminateTelemetryDeviceProcess(int telemetryDeviceId)
         {

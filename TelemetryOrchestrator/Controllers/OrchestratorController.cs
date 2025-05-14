@@ -34,11 +34,12 @@ namespace TelemetryOrchestrator.Controllers
         {
             var (devicePort, listeningPort , deviceId) = _loadMonitor.GetMinLoadedPorts();
 
+            OperationResult simulatorResult = await _httpManager.ConfigureSimulator(request.uavNumber, listeningPort);
+            if (simulatorResult != OperationResult.Success) return BadRequest("simulator failed");
+
             OperationResult telemetryResult = await _httpManager.StartTelemetryPipeline(devicePort, listeningPort, request.uavNumber);
             if (telemetryResult != OperationResult.Success) return BadRequest("Telemetry create Pipeline failed");
 
-            OperationResult simulatorResult = await _httpManager.ConfigureSimulator(request.uavNumber, listeningPort);
-            if (simulatorResult != OperationResult.Success) return BadRequest("simulator failed");
 
             _registryManager.RegisterSimulator(new SimulatorInfo(request.uavNumber,listeningPort),deviceId);
 

@@ -43,7 +43,7 @@ namespace TelemetryOrchestrator.Extentions
 
         }
 
-        public static async Task<float> GetDeviceLoad(int deviceId , float totalSystemRam)
+        public static async Task<float> GetDeviceLoad(int deviceId, float totalSystemRam)
         {
             Process process = Process.GetProcessById(deviceId);
 
@@ -82,10 +82,20 @@ namespace TelemetryOrchestrator.Extentions
 
         public static float GetRamUsageForDevice(Process process)
         {
-            long memoryUsage = process.WorkingSet64;  
-            return (float)(memoryUsage / 1024.0 / 1024.0); 
+            long memoryUsage = process.WorkingSet64;
+            return (float)(memoryUsage / 1024.0 / 1024.0);
         }
 
+        public static float CalculateDeviceLoad(Process process, float ramUsage, float cpuUsage, float totalSystemRam)
+        {
+            float normalizedCpuUsage = cpuUsage / 100.0f;  //0-1 
 
+            float normalizedRamUsage = ramUsage / totalSystemRam;  //0-1
+
+            float combinedLoad = normalizedCpuUsage + normalizedRamUsage;
+
+            return combinedLoad;  // 0-2
+
+        }
     }
 }
