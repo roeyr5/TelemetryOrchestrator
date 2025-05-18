@@ -39,7 +39,7 @@ namespace TelemetryOrchestrator.Services
         {
             if (!_telemetryDevices.Contains(telemetryDeviceId))
             {
-                throw new InvalidOperationException("Telemetry device not registered.");
+                throw new InvalidOperationException("device not registerd");
             }
 
             if (!_telemetryDeviceSimulators.ContainsKey(telemetryDeviceId))
@@ -48,7 +48,6 @@ namespace TelemetryOrchestrator.Services
             }
 
             _telemetryDeviceSimulators[telemetryDeviceId].Add(simulatorId);
-            Console.WriteLine($"Simulator {simulatorId} registered to {telemetryDeviceId}");
         }
 
         public void RegisterTelemetryDevice(int telemetryDeviceId)
@@ -57,23 +56,7 @@ namespace TelemetryOrchestrator.Services
             {
                 _telemetryDevices.Add(telemetryDeviceId);
                 _telemetryDeviceSimulators[telemetryDeviceId] = new List<SimulatorInfo>(); // Initialize with no simulators
-                Console.WriteLine($"Telemetry device {telemetryDeviceId} registered.");
             }
-        }
-
-        public void RemoveSimulator(SimulatorInfo simulatorId)
-        {
-            foreach (var device in _telemetryDeviceSimulators)
-            {
-                if (device.Value.Contains(simulatorId))
-                {
-                    device.Value.Remove(simulatorId);
-                    Console.WriteLine($"Removed simulator {simulatorId} from {device.Key}");
-                    return;
-                }
-            }
-
-            Console.WriteLine($"Simulator {simulatorId} not found.");
         }
 
 
@@ -87,17 +70,8 @@ namespace TelemetryOrchestrator.Services
                     _telemetryDeviceSimulators.Remove(telemetryDeviceId);
 
                     TerminateTelemetryDeviceProcess(telemetryDeviceId);
-
-                    Console.WriteLine($"Telemetry device {telemetryDeviceId} has no simulators and has been removed.");
                 }
-                else
-                {
-                    Console.WriteLine($"Telemetry device {telemetryDeviceId} still has simulators assigned and cannot be removed.");
-                }
-            }
-            else
-            {
-                Console.WriteLine($"Telemetry device {telemetryDeviceId} not found.");
+              
             }
         }
 
@@ -106,7 +80,6 @@ namespace TelemetryOrchestrator.Services
             if (_telemetryDeviceSimulators.ContainsKey(telemetryDeviceId))
             {
                 _telemetryDeviceSimulators[telemetryDeviceId].Remove(simulator);
-                Console.WriteLine($"Simulator {simulator} unregistered from {telemetryDeviceId}");
             }
         }
 
@@ -122,11 +95,9 @@ namespace TelemetryOrchestrator.Services
             {
                 Process process = Process.GetProcessById(telemetryDeviceId);
                 process.Kill();
-                Console.WriteLine($"Terminated process for Telemetry Device: {telemetryDeviceId}");
             }
             catch (ArgumentException)
             {
-                Console.WriteLine($"No process found for Telemetry Device: {telemetryDeviceId}. It may not be running.");
             }
         }
 

@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 
 namespace TelemetryOrchestrator.Entities
 {
-    public class OrchestratorSettings
+    public class AutoScalerSettings
     {
         public string TDServicePath { get; set; }
         public int MaxSimulatorsPerTD { get; set; }

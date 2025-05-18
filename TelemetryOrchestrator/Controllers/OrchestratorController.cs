@@ -37,7 +37,7 @@ namespace TelemetryOrchestrator.Controllers
             OperationResult simulatorResult = await _httpManager.ConfigureSimulator(request.uavNumber, listeningPort);
             if (simulatorResult != OperationResult.Success) return BadRequest("simulator failed");
 
-            OperationResult telemetryResult = await _httpManager.StartTelemetryPipeline(devicePort, listeningPort, request.uavNumber);
+            OperationResult telemetryResult = await _httpManager.StartTelemetryPipeline(request.uavNumber, listeningPort, devicePort);
             if (telemetryResult != OperationResult.Success) return BadRequest("Telemetry create Pipeline failed");
 
 

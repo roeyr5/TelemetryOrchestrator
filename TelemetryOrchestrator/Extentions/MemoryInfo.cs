@@ -86,7 +86,7 @@ namespace TelemetryOrchestrator.Extentions
             return (float)(memoryUsage / 1024.0 / 1024.0);
         }
 
-        public static float CalculateDeviceLoad(Process process, float ramUsage, float cpuUsage, float totalSystemRam)
+        public static float CalculateDeviceLoad(float ramUsage, float cpuUsage, float totalSystemRam)
         {
             float normalizedCpuUsage = cpuUsage / 100.0f;  //0-1 
 
