@@ -24,7 +24,7 @@ namespace TelemetryOrchestrator.Services.Http_Requests
 
         }
 
-        public async Task<OperationResult> StartTelemetryPipeline(int devicePort, int udpPort, int uavNumber)
+        public async Task<OperationResult> StartTelemetryPipeline(int uavNumber, int udpPort, int devicePort)
         {
             try
             {
@@ -43,19 +43,20 @@ namespace TelemetryOrchestrator.Services.Http_Requests
                     ? OperationResult.Success
                     : OperationResult.Failed;
             }
-            catch(Exception e)
+            catch (Exception e)
             {
-                System.Console.WriteLine("error" +e);
+                System.Console.WriteLine("error" + e);
                 return OperationResult.Failed;
             }
         }
 
-        public async Task<OperationResult> ConfigureSimulator(int uavNumber, int udpPort)
+        public async Task<OperationResult> ConfigureSimulator(int uavNumber, string fileName, int udpPort)
         {
             ChannelDTO channelDto = new()
             {
                 uavNumber = uavNumber,
-                port = udpPort
+                port = udpPort,
+                fileName = fileName
             };
 
             string serializedData = JsonSerializer.Serialize(channelDto);
@@ -80,7 +81,7 @@ namespace TelemetryOrchestrator.Services.Http_Requests
             StringContent content = new(serializedData, Encoding.UTF8, "application/json");
 
             HttpResponseMessage response = await _httpClient.PutAsync($"{_baseUrl}:{_simulatorPort}/simulator/ChangeEndPoints", content);
-            await StartTelemetryPipeline(devicePort, listenPort, uavNumber);
+            await StartTelemetryPipeline(uavNumber, listenPort, devicePort);
 
             return response.IsSuccessStatusCode
                             ? OperationResult.Success

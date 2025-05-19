@@ -10,6 +10,8 @@ namespace TelemetryOrchestrator.Extentions
         public int uavNumber { get; set; }
         public int? port { get; set; }
 #nullable enable
+        public string? fileName { get; set; }
+#nullable enable
 
     }
     public enum OperationResult

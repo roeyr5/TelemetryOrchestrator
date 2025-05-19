@@ -8,6 +8,7 @@ namespace TelemetryOrchestrator.Interfaces
 {
     public interface IRegistryManager
     {
+        public void UpdateSimulatorAssignment(SimulatorInfo simulatorId, int oldDeviceId, int newDeviceId);
         public void RegisterSimulator(SimulatorInfo simulatorId, int telemetryDeviceId);
 
         public void RegisterTelemetryDevice(int telemetryDeviceId);

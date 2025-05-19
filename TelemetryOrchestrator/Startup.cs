@@ -31,8 +31,8 @@ namespace TelemetryOrchestrator
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.Configure<OrchestratorSettings>(Configuration.GetSection(nameof(OrchestratorSettings)));
-            services.AddSingleton(resolver => resolver.GetRequiredService<IOptions<OrchestratorSettings>>().Value);
+            services.Configure<AutoScalerSettings>(Configuration.GetSection(nameof(AutoScalerSettings)));
+            services.AddSingleton(resolver => resolver.GetRequiredService<IOptions<AutoScalerSettings>>().Value);
 
             services.AddSignalR();
             services.AddSingleton<IRegistryManager, RegistryManager>();

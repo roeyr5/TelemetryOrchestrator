@@ -21,6 +21,8 @@ namespace TelemetryOrchestrator.Entities
     {
         public TelemetryDeviceInfo Device { get; set; }
         public List<SimulatorInfo> Simulators { get; set; }
+        public float CpuUsage { get; set; }
+        public float RamUsage { get; set; }
     }
     public class SimulatorReassign
     {

@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,36 +18,44 @@ namespace TelemetryOrchestrator.Services
 {
     public class LoadMonitorService : BackgroundService
     {
-        private readonly OrchestratorSettings _orchestratorSettings;
+        private const string ORCHESTRATOR_UPDATE = "OrchestratorUpdate";
+        private const string SIMULATOR_ASSIGNMENT = "SimulatorAssignment";
+        private const string DEVICE_CREATED = "DeviceCreated";
+
+        private readonly AutoScalerSettings _autoScalerSettings;
         private readonly IRegistryManager _registryManager;
         private readonly HttpService _httpService;
         private readonly IHubContext<LiveHub> _hubContext;
 
         private readonly Dictionary<SimulatorInfo, int> _simulatorReassignments;
         private readonly Dictionary<int, TelemetryDeviceInfo> _telemetryDevices;
+        private readonly SortedSet<(float load, int deviceId)> _sortedDevices;
         private readonly float _totalSystemRam;
         private readonly PortManager _portManager;
 
         public SortedSet<(float Load, int processId)> _deviceHeap;
 
-        public LoadMonitorService(OrchestratorSettings settings, IRegistryManager registryManager, HttpService httpService, IHubContext<LiveHub> hubContext)
+        public LoadMonitorService(AutoScalerSettings settings, IRegistryManager registryManager, HttpService httpService, IHubContext<LiveHub> hubContext)
         {
             _hubContext = hubContext;
             _simulatorReassignments = new();
             _telemetryDevices = new();
-            _deviceHeap = new(Comparer<(float Load, int processId)>.Create((a, b) => a.Load.CompareTo(b.Load)));
+            _deviceHeap = new(Comparer<(float load, int deviceId)>.Create((a, b) => { int cmp = a.load.CompareTo(b.load); return cmp != 0 ? cmp : a.deviceId.CompareTo(b.deviceId); }));
+            _sortedDevices = new(Comparer<(float load, int deviceId)>.Create((a, b) => { int cmp = a.load.CompareTo(b.load); return cmp != 0 ? cmp : a.deviceId.CompareTo(b.deviceId); }));
             _portManager = new();
 
             _totalSystemRam = MemoryInfo.GetTotalPhysicalMemory();
-            _orchestratorSettings = settings;
+            _autoScalerSettings = settings;
             _registryManager = registryManager;
             _httpService = httpService;
+
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             try
             {
+                SetAutoScalerLimits();
                 List<int> devices = _registryManager.GetTelemetryDevices();
 
                 if (devices.Count == 0)
@@ -56,25 +65,15 @@ namespace TelemetryOrchestrator.Services
                 {
                     try
                     {
-                        devices = _registryManager.GetTelemetryDevices();
-
-                        //var tasks = devices.Select(device => BalanceSimulatorsDevices(device));
-                        await BalanceSimulators();
-                        //await Task.WhenAll(tasks);
+                        await CheckBalanceDevices();
                         await BroadcastOrchestratorUpdate();
-
-                        //var tasks = devices.Select(device => CheckAndRebalanceDeviceLoadAsync(device));
-                        //await Task.WhenAll(tasks);
-
-                        //await RebalanceSimulators();
-
                     }
                     catch (Exception ex)
                     {
-                        Console.Error.WriteLine($"[LoadMonitor] Loop error: {ex}");
+                        Console.Error.WriteLine($"error: {ex}");
                     }
 
-                    await Task.Delay(3000, stoppingToken);
+                    await Task.Delay(2000, stoppingToken);
                 }
             }
             catch (Exception e)
@@ -87,7 +86,7 @@ namespace TelemetryOrchestrator.Services
         {
             try
             {
-                var tcpListener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+                TcpListener tcpListener = new(System.Net.IPAddress.Loopback, port);
 
                 tcpListener.Start();
                 tcpListener.Stop();
@@ -108,223 +107,82 @@ namespace TelemetryOrchestrator.Services
         public (int TelemetryPort, int SimulatorPort, int deviceId) GetMinLoadedPorts()
         {
             var minDevice = _deviceHeap.Min;
-            var deviceInfo = _telemetryDevices[minDevice.processId];
+            TelemetryDeviceInfo deviceInfo = _telemetryDevices[minDevice.processId];
             return (deviceInfo.DevicePort, deviceInfo.ListenerPort, minDevice.processId);
         }
 
-        private async Task<float> CheckAndRebalanceDeviceLoadAsync(int processId)
-        {
-            Process process = Process.GetProcessById(processId);
-
-            float cpuUsage = await MemoryInfo.GetCpuUsageForDeviceAsync(process);
-            float ramUsage = MemoryInfo.GetRamUsageForDevice(process);
-            List<SimulatorInfo> assignedSimulators = _registryManager.GetSimulatorsAssignedToDevice(processId);
-
-            if (cpuUsage > _orchestratorSettings.MaxCpuUsage || ramUsage > _orchestratorSettings.MaxRamUsage || assignedSimulators.Count > _orchestratorSettings.MaxSimulatorsPerTD)
-            {
-                Console.WriteLine($"[Monitor] Device {processId} is overloaded, initiating rebalancing...");
-                await RebalanceSimulatorsForDeviceAsync(processId);
-            }
-
-            return cpuUsage + ramUsage;
-        }
-
-        private async Task RebalanceSimulatorsForDeviceAsync(int overloadedDevice)
-        {
-            var devices = _registryManager.GetTelemetryDevices();
-            var simulators = _registryManager.GetSimulatorsAssignedToDevice(overloadedDevice);
-
-            var sortedDevices = new SortedSet<(float load, int deviceId)>(Comparer<(float, int)>.Create((x, y) =>
-            {
-                int cmp = x.Item1.CompareTo(y.Item1);
-                return cmp != 0 ? cmp : x.Item2.CompareTo(y.Item2);
-            }));
-
-            foreach (var device in devices.Where(d => d != overloadedDevice))
-            {
-                float load = await MemoryInfo.GetDeviceLoad(device, _totalSystemRam);
-                sortedDevices.Add((load, device));
-            }
-
-            int newDeviceId = await EnsureDeviceAvailability(sortedDevices);
-
-            int simulatorsToMove = (int)Math.Floor(simulators.Count * 0.5);
-
-            foreach (SimulatorInfo simulator in simulators.Take(simulatorsToMove))
-            {
-                if (sortedDevices.Any())
-                {
-                    var leastLoadedDevice = sortedDevices.Min;
-                    int leastLoadedDeviceName = leastLoadedDevice.deviceId;
-
-                    _registryManager.RegisterSimulator(simulator, leastLoadedDeviceName);
-                    Console.WriteLine($"[LoadMonitor] Reassigned simulator {simulator} to {leastLoadedDeviceName}");
-                    _simulatorReassignments[simulator] = leastLoadedDeviceName;
-
-                    sortedDevices.Remove(leastLoadedDevice); // remove from the load ( log (n) )
-
-                    float updatedLoad = await MemoryInfo.GetDeviceLoad(leastLoadedDeviceName, _totalSystemRam);
-                    sortedDevices.Add((updatedLoad, leastLoadedDeviceName));
-                }
-            }
-
-            await NotifySimulatorsOfNewAssignments();
-        }
-
-        private async Task BalanceSimulators()
+        private async Task CheckBalanceDevices()
         {
             List<int> telemetryDevices = _registryManager.GetTelemetryDevices();
 
-            foreach (int telemetryProcessId in telemetryDevices)
+            foreach (int deviceProcessId in telemetryDevices)
             {
-                List<SimulatorInfo> assignedSimulators = _registryManager.GetSimulatorsAssignedToDevice(telemetryProcessId);
-                Process telemetryDeviceProcess = Process.GetProcessById(telemetryProcessId);
+                List<SimulatorInfo> assignedSimulators = _registryManager.GetSimulatorsAssignedToDevice(deviceProcessId);
+                Process telemetryDeviceProcess = Process.GetProcessById(deviceProcessId);
 
                 float cpuUsage = await MemoryInfo.GetCpuUsageForDeviceAsync(telemetryDeviceProcess);
                 float ramUsage = MemoryInfo.GetRamUsageForDevice(telemetryDeviceProcess);
 
-                if (cpuUsage > _orchestratorSettings.MaxCpuUsage || ramUsage > _orchestratorSettings.MaxRamUsage || assignedSimulators.Count > _orchestratorSettings.MaxSimulatorsPerTD)
+                if (cpuUsage > _autoScalerSettings.MaxCpuUsage || ramUsage > _autoScalerSettings.MaxRamUsage || assignedSimulators.Count > _autoScalerSettings.MaxSimulatorsPerTD)
                 {
-                    await Rebalance(telemetryProcessId);
+                    await RebalanceDevices(deviceProcessId);
                     break;
                 }
 
             }
         }
-        private async Task BalanceSimulatorsDevices(int deviceId)
-        {
-            Process process = Process.GetProcessById(deviceId);
-
-            float cpuUsage = await MemoryInfo.GetCpuUsageForDeviceAsync(process);
-            float ramUsage = MemoryInfo.GetRamUsageForDevice(process);
-            List<SimulatorInfo> assignedSimulators = _registryManager.GetSimulatorsAssignedToDevice(deviceId);
-
-            if (cpuUsage > _orchestratorSettings.MaxCpuUsage || ramUsage > _orchestratorSettings.MaxRamUsage || assignedSimulators.Count > _orchestratorSettings.MaxSimulatorsPerTD)
-            {
-                Console.WriteLine($"[Monitor] Device {deviceId} is overloaded, initiating rebalancing...");
-                await Rebalance(deviceId);
-            }
-
-        }
-
-        private async Task Rebalance(int overloadedDevice)
+        private async Task RebalanceDevices(int overloadedDeviceId)
         {
             List<int> telemetryDevices = _registryManager.GetTelemetryDevices();
-            List<SimulatorInfo> simulatorsOfOverloadDevice = _registryManager.GetSimulatorsAssignedToDevice(overloadedDevice);
+            await BuildTargetDevice(telemetryDevices, overloadedDeviceId);
+            List<SimulatorInfo> simulatorsOfOverloadDevice = _registryManager.GetSimulatorsAssignedToDevice(overloadedDeviceId);
 
-            SortedSet<(float load, int deviceId)> sortedDevices = new SortedSet<(float load, int deviceId)>(Comparer<(float, int)>.Create((x, y) =>
-            {
-                int cmp = x.Item1.CompareTo(y.Item1);
-                return cmp != 0 ? cmp : x.Item2.CompareTo(y.Item2);
-            }));
+            await ReassignSimulators(simulatorsOfOverloadDevice);
 
-            foreach (int deviceProcessId in telemetryDevices.Where(d => d != overloadedDevice))
+        }
+        private async Task ReassignSimulators(List<SimulatorInfo> simulatorsOfOverloadDevice)
+        {
+            int simulatorsToMove = (int)Math.Floor(simulatorsOfOverloadDevice.Count * 0.5) - 1;
+
+            foreach (SimulatorInfo simulator in simulatorsOfOverloadDevice.Take(simulatorsToMove))
             {
-                List<SimulatorInfo> assignedSimulators = _registryManager.GetSimulatorsAssignedToDevice(deviceProcessId);
-                Process deviceProcess = Process.GetProcessById(deviceProcessId);
+                if (_sortedDevices.Any())
+                {
+                    var leastLoadedDevice = _sortedDevices.Min;
+                    int leastLoadedDeviceName = leastLoadedDevice.deviceId;
+
+                    _simulatorReassignments[simulator] = leastLoadedDeviceName;
+
+                    _sortedDevices.Remove(leastLoadedDevice); // remove from the load ( log (n) )
+
+                    float updatedLoad = await MemoryInfo.GetDeviceLoad(leastLoadedDeviceName, _totalSystemRam);
+                    _sortedDevices.Add((updatedLoad, leastLoadedDeviceName));
+
+                }
+            }
+
+            await NotifySimulatorsOfNewAssignments();
+        }
+        private async Task BuildTargetDevice(List<int> telemetryDevices, int overloadedDeviceId)
+        {
+            _sortedDevices.Clear();
+
+            foreach (int deviceId in telemetryDevices.Where(device => device != overloadedDeviceId))
+            {
+                List<SimulatorInfo> assignedSimulators = _registryManager.GetSimulatorsAssignedToDevice(deviceId);
+                Process deviceProcess = Process.GetProcessById(deviceId);
 
                 float cpuUsage = await MemoryInfo.GetCpuUsageForDeviceAsync(deviceProcess);
                 float ramUsage = MemoryInfo.GetRamUsageForDevice(deviceProcess);
 
-                if (assignedSimulators.Count < _orchestratorSettings.MaxSimulatorsPerTD)
+                if (assignedSimulators.Count < _autoScalerSettings.MaxSimulatorsPerTD && ramUsage <= 0.85 * _autoScalerSettings.MaxRamUsage && cpuUsage <= 0.85 * _autoScalerSettings.MaxCpuUsage)
                 {
-                    float load = await MemoryInfo.GetDeviceLoad(deviceProcessId, _totalSystemRam);
-                    sortedDevices.Add((load, deviceProcessId));
+                    float load = MemoryInfo.CalculateDeviceLoad(ramUsage, deviceId, _totalSystemRam);
+                    _sortedDevices.Add((load, deviceId));
                 }
             }
-
-            int newDeviceId = await EnsureDeviceAvailability(sortedDevices);
-            int simulatorsToMove = (int)Math.Floor(simulatorsOfOverloadDevice.Count * 0.5);
-
-            foreach (SimulatorInfo simulator in simulatorsOfOverloadDevice.Take(simulatorsToMove))
-            {
-                if (sortedDevices.Any())
-                {
-                    var leastLoadedDevice = sortedDevices.Min;
-                    int leastLoadedDeviceName = leastLoadedDevice.deviceId;
-
-                    //_registryManager.RegisterSimulator(simulator, leastLoadedDeviceName);
-                    Console.WriteLine($"[LoadMonitor] Reassigned simulator {simulator} to {leastLoadedDeviceName}");
-                    _simulatorReassignments[simulator] = leastLoadedDeviceName;
-
-                    sortedDevices.Remove(leastLoadedDevice); // remove from the load ( log (n) )
-
-                    float updatedLoad = await MemoryInfo.GetDeviceLoad(leastLoadedDeviceName, _totalSystemRam);
-                    sortedDevices.Add((updatedLoad, leastLoadedDeviceName));
-                }
-            }
-
-            await NotifySimulatorsOfNewAssignments();
+            await EnsureDeviceAvailability();
         }
-
-        private async Task RebalanceSimulators()
-        {
-            List<int> devices = _registryManager.GetTelemetryDevices();
-
-            var sortedDevices = new SortedSet<(float load, int deviceId)>(Comparer<(float, int)>.Create((x, y) =>
-            {
-                int cmp = x.Item1.CompareTo(y.Item1);
-                return cmp != 0 ? cmp : x.Item2.CompareTo(y.Item2);
-            }));
-
-
-            foreach (int processId in devices)
-            {
-                Process device = Process.GetProcessById(processId);
-
-                float cpuUsage = await MemoryInfo.GetCpuUsageForDeviceAsync(device);
-                float ramUsage = MemoryInfo.GetRamUsageForDevice(device);
-
-                if (ramUsage <= 0.8 * _orchestratorSettings.MaxRamUsage || cpuUsage <= 0.8 * _orchestratorSettings.MaxCpuUsage)
-                {
-                    float load = await MemoryInfo.GetDeviceLoad(processId, _totalSystemRam);
-                    sortedDevices.Add((load, processId));
-                }
-                else
-                {
-                    Console.WriteLine($"Device {device} is overloaded with CPU: {cpuUsage}% and RAM: {ramUsage}%");
-                }
-            }
-
-
-            foreach (var device in devices)
-            {
-                List<SimulatorInfo> assignedSimulators = _registryManager.GetSimulatorsAssignedToDevice(device);
-                if (assignedSimulators.Count > _orchestratorSettings.MaxSimulatorsPerTD)
-                {
-                    sortedDevices.RemoveWhere(d => d.deviceId == device);
-
-                    int newDeviceId = await EnsureDeviceAvailability(sortedDevices);
-
-                    int simulatorsToMove = (int)Math.Floor(assignedSimulators.Count * 0.5);
-
-                    foreach (SimulatorInfo simulator in assignedSimulators.Take(simulatorsToMove))
-                    {
-                        var target = sortedDevices.FirstOrDefault(d => d.deviceId != device);
-                        int targetDeviceId = target.deviceId > 0 ? target.deviceId : newDeviceId;
-
-                        if (target.deviceId > 0 && targetDeviceId != device)
-                        {
-                            _registryManager.RegisterSimulator(simulator, target.deviceId);
-                            _simulatorReassignments[simulator] = target.deviceId;
-
-                            Console.WriteLine($"[LoadMonitor] Reassigned {simulator} to {target}");
-
-                            sortedDevices.Remove(target);
-                            float newLoad = await MemoryInfo.GetDeviceLoad(target.deviceId, _totalSystemRam);
-                            sortedDevices.Add((newLoad, target.deviceId));
-
-                        }
-                    }
-                }
-            }
-
-            await NotifySimulatorsOfNewAssignments();
-        }
-
-
-
-
         private async Task<int> NewTelemetryDeviceProcces()
         {
             var (telemetryPort, simulatorPort) = _portManager.GetNextPorts();
@@ -338,7 +196,7 @@ namespace TelemetryOrchestrator.Services
             {
                 ProcessStartInfo startInfo = new()
                 {
-                    FileName = _orchestratorSettings.TDServicePath,
+                    FileName = _autoScalerSettings.TDServicePath,
                     Arguments = $"--port={telemetryPort}",
                     UseShellExecute = false,
                     CreateNoWindow = false,
@@ -361,18 +219,16 @@ namespace TelemetryOrchestrator.Services
                     await UpdateDeviceHeap(process.Id);
                     await NotificationOfNewDevice(process.Id);
 
-                    Console.WriteLine($"Started process with ID: {process.Id} and Unique Identifier");
                     return process.Id;
                 }
                 else
                 {
-                    Console.WriteLine("Failed to start the Telemetry Device process.");
                     return -1;
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Got an exception when trying to create a new TelemetryDevice process: {ex}");
+                Console.WriteLine($"exception message : {ex}");
                 return -1;
             }
         }
@@ -381,65 +237,73 @@ namespace TelemetryOrchestrator.Services
             foreach (var simulator in _simulatorReassignments)
             {
                 SimulatorInfo simulatorInfo = simulator.Key;
-                int oldDeviceId = _telemetryDevices.FirstOrDefault(elemnt => _registryManager.GetSimulatorsAssignedToDevice(elemnt.Key).Contains(simulatorInfo)).Key;
                 int newDeviceId = simulator.Value;
-
-                //if (oldDeviceId == newDeviceId)
-                //{
-                //    newDeviceId = await NewTelemetryDeviceProcces();
-                //}
-
-                _registryManager.UnRegisterSimulator(simulatorInfo, oldDeviceId);
-                _registryManager.RegisterSimulator(simulatorInfo, newDeviceId);
+                int oldDeviceId = _telemetryDevices.FirstOrDefault(element => _registryManager.GetSimulatorsAssignedToDevice(element.Key).Contains(simulatorInfo)).Key;
 
                 TelemetryDeviceInfo targetTelemetryDevice = _telemetryDevices[newDeviceId];
+                _registryManager.UpdateSimulatorAssignment(simulatorInfo, oldDeviceId, newDeviceId);
 
-                int uavNumber = simulatorInfo.UavNumber;
-                int udpPort = targetTelemetryDevice.ListenerPort;
-
-
-                OperationResult result = await _httpService.ReconfigureSimulatorEndpoint(uavNumber, udpPort, targetTelemetryDevice.DevicePort);
-
-                if (result == OperationResult.Success)
-                {
-                    simulatorInfo.ControlEndPoint = udpPort;
-                    await NotificationOfNewAssign(uavNumber, oldDeviceId, newDeviceId);
-                    await BroadcastOrchestratorUpdate();
-
-                    await UpdateDeviceHeap(newDeviceId);
-                    await UpdateDeviceHeap(oldDeviceId);
-                }
-                else
-                {
-                    Console.WriteLine($"[LoadMonitor] Failed to notify simulator {uavNumber}");
-                }
-
+                await HandleSimulatorReassignment(simulatorInfo, oldDeviceId, newDeviceId, targetTelemetryDevice);
             }
             _simulatorReassignments.Clear();
+
         }
-        private async Task<int> EnsureDeviceAvailability(SortedSet<(float load, int deviceId)> sortedDevices)
+        private async Task HandleSimulatorReassignment(SimulatorInfo simulator, int oldDeviceId, int newDeviceId, TelemetryDeviceInfo targetTelemetryDevice)
         {
-            if (sortedDevices.Any())
-            {
-                var (minLoad, minDeviceId) = sortedDevices.Min;
-                return minDeviceId;
-            }
+            int uavNumber = simulator.UavNumber;
+            int udpPort = targetTelemetryDevice.ListenerPort;
+            int devicePort = targetTelemetryDevice.DevicePort;
 
-            Console.WriteLine("No available devices to move simulators to. Spinning up a new one...");
+            OperationResult result = await _httpService.ReconfigureSimulatorEndpoint(uavNumber, udpPort, devicePort);
 
-            int newDeviceId = await NewTelemetryDeviceProcces();
-            if (newDeviceId != -1)
+            if (result == OperationResult.Success)
             {
-                float load = await MemoryInfo.GetDeviceLoad(newDeviceId, _totalSystemRam);
-                sortedDevices.Add((load, newDeviceId));
+                simulator.ControlEndPoint = udpPort;
+
+                await NotificationOfNewAssign(uavNumber, oldDeviceId, newDeviceId);
+                await BroadcastOrchestratorUpdate();
+
+                await Task.WhenAll(
+                    UpdateDeviceHeap(newDeviceId),
+                    UpdateDeviceHeap(oldDeviceId)
+                );
             }
             else
             {
-                Console.WriteLine("[EnsureDeviceAvailability] Failed to start a new telemetry device.");
+                Console.WriteLine($"Failed to reassign simulator {uavNumber}");
+            }
+        }
+        private async Task<int> EnsureDeviceAvailability()
+        {
+            if (_sortedDevices.Any())
+            {
+                var (minLoad, minDeviceId) = _sortedDevices.Min;
+                return minDeviceId;
+            }
+
+            int newDeviceId = await NewTelemetryDeviceProcces();
+
+            if (newDeviceId != -1)
+            {
+                float load = await MemoryInfo.GetDeviceLoad(newDeviceId, _totalSystemRam);
+                _sortedDevices.Add((load, newDeviceId));
             }
 
             return newDeviceId;
         }
+
+        private void SetAutoScalerLimits()
+        {
+            _autoScalerSettings.MaxRamUsage = (int)(_totalSystemRam * 0.0125);
+
+            int coreCount = Environment.ProcessorCount;
+            float percentOfOneCore = 0.25f;
+            int maxCpuUsage = (int)(100f / coreCount * percentOfOneCore);
+
+            _autoScalerSettings.MaxCpuUsage = maxCpuUsage;
+
+        }
+
 
         private async Task BroadcastOrchestratorUpdate()
         {
@@ -451,19 +315,17 @@ namespace TelemetryOrchestrator.Services
                 {
                     int deviceId = element.Key;
                     TelemetryDeviceInfo deviceInfo = element.Value;
-
-                    Console.WriteLine($"update client for device id - {deviceId}");
-
                     List<SimulatorInfo> simulators = _registryManager.GetSimulatorsAssignedToDevice(deviceId);
 
                     orchestratorUpdate[deviceId] = new OrchestratorUpdateDto
                     {
                         Device = deviceInfo,
-                        Simulators = simulators
+                        Simulators = simulators,
+
                     };
                 }
 
-                await _hubContext.Clients.All.SendAsync("OrchestratorUpdate", orchestratorUpdate);
+                await _hubContext.Clients.All.SendAsync(ORCHESTRATOR_UPDATE, orchestratorUpdate);
             }
             catch (Exception ex)
             {
@@ -480,11 +342,11 @@ namespace TelemetryOrchestrator.Services
                 NewDeviceId = newDeviceId
             };
 
-            await _hubContext.Clients.All.SendAsync("SimulatorAssignment", newAssign);
+            await _hubContext.Clients.All.SendAsync(SIMULATOR_ASSIGNMENT, newAssign);
         }
         private async Task NotificationOfNewDevice(int newDeviceId)
         {
-            await _hubContext.Clients.All.SendAsync("DeviceCreated", newDeviceId);
+            await _hubContext.Clients.All.SendAsync(DEVICE_CREATED, newDeviceId);
         }
 
 
