@@ -22,13 +22,14 @@ namespace TelemetryOrchestrator.Services
         private const string SIMULATOR_ASSIGNMENT = "SimulatorAssignment";
         private const string DEVICE_CREATED = "DeviceCreated";
 
-        private readonly AutoScalerSettings _orchestratorSettings;
+        private readonly AutoScalerSettings _autoScalerSettings;
         private readonly IRegistryManager _registryManager;
         private readonly HttpService _httpService;
         private readonly IHubContext<LiveHub> _hubContext;
 
         private readonly Dictionary<SimulatorInfo, int> _simulatorReassignments;
         private readonly Dictionary<int, TelemetryDeviceInfo> _telemetryDevices;
+        private readonly SortedSet<(float load, int deviceId)> _sortedDevices;
         private readonly float _totalSystemRam;
         private readonly PortManager _portManager;
 
@@ -39,22 +40,22 @@ namespace TelemetryOrchestrator.Services
             _hubContext = hubContext;
             _simulatorReassignments = new();
             _telemetryDevices = new();
-            _deviceHeap = new(Comparer<(float Load, int processId)>.Create((a, b) => a.Load.CompareTo(b.Load)));
+            _deviceHeap = new(Comparer<(float load, int deviceId)>.Create((a, b) => { int cmp = a.load.CompareTo(b.load); return cmp != 0 ? cmp : a.deviceId.CompareTo(b.deviceId); }));
+            _sortedDevices = new(Comparer<(float load, int deviceId)>.Create((a, b) => { int cmp = a.load.CompareTo(b.load); return cmp != 0 ? cmp : a.deviceId.CompareTo(b.deviceId); }));
             _portManager = new();
 
             _totalSystemRam = MemoryInfo.GetTotalPhysicalMemory();
-            _orchestratorSettings = settings;
+            _autoScalerSettings = settings;
             _registryManager = registryManager;
             _httpService = httpService;
 
-            //_orchestratorSettings.MaxCpuUsage = 100 / Environment.ProcessorCount;
-            //_orchestratorSettings.MaxRamUsage = 
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             try
             {
+                SetAutoScalerLimits();
                 List<int> devices = _registryManager.GetTelemetryDevices();
 
                 if (devices.Count == 0)
@@ -122,7 +123,7 @@ namespace TelemetryOrchestrator.Services
                 float cpuUsage = await MemoryInfo.GetCpuUsageForDeviceAsync(telemetryDeviceProcess);
                 float ramUsage = MemoryInfo.GetRamUsageForDevice(telemetryDeviceProcess);
 
-                if (cpuUsage > _orchestratorSettings.MaxCpuUsage || ramUsage > _orchestratorSettings.MaxRamUsage || assignedSimulators.Count > _orchestratorSettings.MaxSimulatorsPerTD)
+                if (cpuUsage > _autoScalerSettings.MaxCpuUsage || ramUsage > _autoScalerSettings.MaxRamUsage || assignedSimulators.Count > _autoScalerSettings.MaxSimulatorsPerTD)
                 {
                     await RebalanceDevices(deviceProcessId);
                     break;
@@ -130,49 +131,43 @@ namespace TelemetryOrchestrator.Services
 
             }
         }
-        private async Task RebalanceDevices(int overloadedDevice)
+        private async Task RebalanceDevices(int overloadedDeviceId)
         {
             List<int> telemetryDevices = _registryManager.GetTelemetryDevices();
-            SortedSet<(float load, int deviceId)> sortedDevices = await BuildTargetDevice(telemetryDevices, overloadedDevice);
-            List<SimulatorInfo> simulatorsOfOverloadDevice = _registryManager.GetSimulatorsAssignedToDevice(overloadedDevice);
+            await BuildTargetDevice(telemetryDevices, overloadedDeviceId);
+            List<SimulatorInfo> simulatorsOfOverloadDevice = _registryManager.GetSimulatorsAssignedToDevice(overloadedDeviceId);
 
-            await ReassignSimulators(simulatorsOfOverloadDevice, sortedDevices);
+            await ReassignSimulators(simulatorsOfOverloadDevice);
 
         }
-        private async Task ReassignSimulators(List<SimulatorInfo> simulatorsOfOverloadDevice, SortedSet<(float load, int deviceId)> sortedDevices)
+        private async Task ReassignSimulators(List<SimulatorInfo> simulatorsOfOverloadDevice)
         {
             int simulatorsToMove = (int)Math.Floor(simulatorsOfOverloadDevice.Count * 0.5) - 1;
 
             foreach (SimulatorInfo simulator in simulatorsOfOverloadDevice.Take(simulatorsToMove))
             {
-                if (sortedDevices.Any())
+                if (_sortedDevices.Any())
                 {
-                    var leastLoadedDevice = sortedDevices.Min;
+                    var leastLoadedDevice = _sortedDevices.Min;
                     int leastLoadedDeviceName = leastLoadedDevice.deviceId;
 
                     _simulatorReassignments[simulator] = leastLoadedDeviceName;
 
-                    sortedDevices.Remove(leastLoadedDevice); // remove from the load ( log (n) )
+                    _sortedDevices.Remove(leastLoadedDevice); // remove from the load ( log (n) )
 
                     float updatedLoad = await MemoryInfo.GetDeviceLoad(leastLoadedDeviceName, _totalSystemRam);
-                    sortedDevices.Add((updatedLoad, leastLoadedDeviceName));
+                    _sortedDevices.Add((updatedLoad, leastLoadedDeviceName));
 
                 }
             }
 
             await NotifySimulatorsOfNewAssignments();
         }
-        private async Task<SortedSet<(float load, int deviceId)>> BuildTargetDevice(List<int> telemetryDevices, int overloadedDeviceId)
+        private async Task BuildTargetDevice(List<int> telemetryDevices, int overloadedDeviceId)
         {
-            SortedSet<(float load, int deviceId)> sortedDevices = new(
-                Comparer<(float load, int deviceId)>.Create((a, b) =>
-                {
-                    int cmp = a.load.CompareTo(b.load);
-                    return cmp != 0 ? cmp : a.deviceId.CompareTo(b.deviceId);
-                })
-            );
+            _sortedDevices.Clear();
 
-            foreach (int deviceId in telemetryDevices.Where(d => d != overloadedDeviceId))
+            foreach (int deviceId in telemetryDevices.Where(device => device != overloadedDeviceId))
             {
                 List<SimulatorInfo> assignedSimulators = _registryManager.GetSimulatorsAssignedToDevice(deviceId);
                 Process deviceProcess = Process.GetProcessById(deviceId);
@@ -180,14 +175,13 @@ namespace TelemetryOrchestrator.Services
                 float cpuUsage = await MemoryInfo.GetCpuUsageForDeviceAsync(deviceProcess);
                 float ramUsage = MemoryInfo.GetRamUsageForDevice(deviceProcess);
 
-                if (assignedSimulators.Count < _orchestratorSettings.MaxSimulatorsPerTD && ramUsage <= 0.8 * _orchestratorSettings.MaxRamUsage && cpuUsage <= 0.8 * _orchestratorSettings.MaxCpuUsage)
+                if (assignedSimulators.Count < _autoScalerSettings.MaxSimulatorsPerTD && ramUsage <= 0.85 * _autoScalerSettings.MaxRamUsage && cpuUsage <= 0.85 * _autoScalerSettings.MaxCpuUsage)
                 {
                     float load = MemoryInfo.CalculateDeviceLoad(ramUsage, deviceId, _totalSystemRam);
-                    sortedDevices.Add((load, deviceId));
+                    _sortedDevices.Add((load, deviceId));
                 }
             }
-            await EnsureDeviceAvailability(sortedDevices);
-            return sortedDevices;
+            await EnsureDeviceAvailability();
         }
         private async Task<int> NewTelemetryDeviceProcces()
         {
@@ -202,7 +196,7 @@ namespace TelemetryOrchestrator.Services
             {
                 ProcessStartInfo startInfo = new()
                 {
-                    FileName = _orchestratorSettings.TDServicePath,
+                    FileName = _autoScalerSettings.TDServicePath,
                     Arguments = $"--port={telemetryPort}",
                     UseShellExecute = false,
                     CreateNoWindow = false,
@@ -246,7 +240,6 @@ namespace TelemetryOrchestrator.Services
                 int newDeviceId = simulator.Value;
                 int oldDeviceId = _telemetryDevices.FirstOrDefault(element => _registryManager.GetSimulatorsAssignedToDevice(element.Key).Contains(simulatorInfo)).Key;
 
-
                 TelemetryDeviceInfo targetTelemetryDevice = _telemetryDevices[newDeviceId];
                 _registryManager.UpdateSimulatorAssignment(simulatorInfo, oldDeviceId, newDeviceId);
 
@@ -280,11 +273,11 @@ namespace TelemetryOrchestrator.Services
                 Console.WriteLine($"Failed to reassign simulator {uavNumber}");
             }
         }
-        private async Task<int> EnsureDeviceAvailability(SortedSet<(float load, int deviceId)> sortedDevices)
+        private async Task<int> EnsureDeviceAvailability()
         {
-            if (sortedDevices.Any())
+            if (_sortedDevices.Any())
             {
-                var (minLoad, minDeviceId) = sortedDevices.Min;
+                var (minLoad, minDeviceId) = _sortedDevices.Min;
                 return minDeviceId;
             }
 
@@ -293,11 +286,24 @@ namespace TelemetryOrchestrator.Services
             if (newDeviceId != -1)
             {
                 float load = await MemoryInfo.GetDeviceLoad(newDeviceId, _totalSystemRam);
-                sortedDevices.Add((load, newDeviceId));
+                _sortedDevices.Add((load, newDeviceId));
             }
 
             return newDeviceId;
         }
+
+        private void SetAutoScalerLimits()
+        {
+            _autoScalerSettings.MaxRamUsage = (int)(_totalSystemRam * 0.0125);
+
+            int coreCount = Environment.ProcessorCount;
+            float percentOfOneCore = 0.25f;
+            int maxCpuUsage = (int)(100f / coreCount * percentOfOneCore);
+
+            _autoScalerSettings.MaxCpuUsage = maxCpuUsage;
+
+        }
+
 
         private async Task BroadcastOrchestratorUpdate()
         {
@@ -341,145 +347,6 @@ namespace TelemetryOrchestrator.Services
         private async Task NotificationOfNewDevice(int newDeviceId)
         {
             await _hubContext.Clients.All.SendAsync(DEVICE_CREATED, newDeviceId);
-        }
-
-
-        private async Task RebalanceSimulators()
-        {
-            List<int> devices = _registryManager.GetTelemetryDevices();
-
-            var sortedDevices = new SortedSet<(float load, int deviceId)>(Comparer<(float, int)>.Create((x, y) =>
-            {
-                int cmp = x.Item1.CompareTo(y.Item1);
-                return cmp != 0 ? cmp : x.Item2.CompareTo(y.Item2);
-            }));
-
-
-            foreach (int processId in devices)
-            {
-                Process device = Process.GetProcessById(processId);
-
-                float cpuUsage = await MemoryInfo.GetCpuUsageForDeviceAsync(device);
-                float ramUsage = MemoryInfo.GetRamUsageForDevice(device);
-
-                if (ramUsage <= 0.8 * _orchestratorSettings.MaxRamUsage || cpuUsage <= 0.8 * _orchestratorSettings.MaxCpuUsage)
-                {
-                    float load = await MemoryInfo.GetDeviceLoad(processId, _totalSystemRam);
-                    sortedDevices.Add((load, processId));
-                }
-                else
-                {
-                    Console.WriteLine($"Device {device} is overloaded with CPU: {cpuUsage}% and RAM: {ramUsage}%");
-                }
-            }
-
-
-            foreach (var device in devices)
-            {
-                List<SimulatorInfo> assignedSimulators = _registryManager.GetSimulatorsAssignedToDevice(device);
-                if (assignedSimulators.Count > _orchestratorSettings.MaxSimulatorsPerTD)
-                {
-                    sortedDevices.RemoveWhere(d => d.deviceId == device);
-
-                    int newDeviceId = await EnsureDeviceAvailability(sortedDevices);
-
-                    int simulatorsToMove = (int)Math.Floor(assignedSimulators.Count * 0.5);
-
-                    foreach (SimulatorInfo simulator in assignedSimulators.Take(simulatorsToMove))
-                    {
-                        var target = sortedDevices.FirstOrDefault(d => d.deviceId != device);
-                        int targetDeviceId = target.deviceId > 0 ? target.deviceId : newDeviceId;
-
-                        if (target.deviceId > 0 && targetDeviceId != device)
-                        {
-                            _registryManager.RegisterSimulator(simulator, target.deviceId);
-                            _simulatorReassignments[simulator] = target.deviceId;
-
-                            Console.WriteLine($"[LoadMonitor] Reassigned {simulator} to {target}");
-
-                            sortedDevices.Remove(target);
-                            float newLoad = await MemoryInfo.GetDeviceLoad(target.deviceId, _totalSystemRam);
-                            sortedDevices.Add((newLoad, target.deviceId));
-
-                        }
-                    }
-                }
-            }
-
-            await NotifySimulatorsOfNewAssignments();
-        }
-
-        private async Task BalanceSimulatorsDevices(int deviceId)
-        {
-            Process process = Process.GetProcessById(deviceId);
-
-            float cpuUsage = await MemoryInfo.GetCpuUsageForDeviceAsync(process);
-            float ramUsage = MemoryInfo.GetRamUsageForDevice(process);
-            List<SimulatorInfo> assignedSimulators = _registryManager.GetSimulatorsAssignedToDevice(deviceId);
-
-            if (cpuUsage > _orchestratorSettings.MaxCpuUsage || ramUsage > _orchestratorSettings.MaxRamUsage || assignedSimulators.Count > _orchestratorSettings.MaxSimulatorsPerTD)
-            {
-                Console.WriteLine($"[Monitor] Device {deviceId} is overloaded, initiating rebalancing...");
-                await RebalanceDevices(deviceId);
-            }
-
-        }
-        private async Task<float> CheckAndRebalanceDeviceLoadAsync(int processId)
-        {
-            Process process = Process.GetProcessById(processId);
-
-            float cpuUsage = await MemoryInfo.GetCpuUsageForDeviceAsync(process);
-            float ramUsage = MemoryInfo.GetRamUsageForDevice(process);
-            List<SimulatorInfo> assignedSimulators = _registryManager.GetSimulatorsAssignedToDevice(processId);
-
-            if (cpuUsage > _orchestratorSettings.MaxCpuUsage || ramUsage > _orchestratorSettings.MaxRamUsage || assignedSimulators.Count > _orchestratorSettings.MaxSimulatorsPerTD)
-            {
-                Console.WriteLine($"[Monitor] Device {processId} is overloaded, initiating rebalancing...");
-                await RebalanceSimulatorsForDeviceAsync(processId);
-            }
-
-            return cpuUsage + ramUsage;
-        }
-        private async Task RebalanceSimulatorsForDeviceAsync(int overloadedDevice)
-        {
-            var devices = _registryManager.GetTelemetryDevices();
-            var simulators = _registryManager.GetSimulatorsAssignedToDevice(overloadedDevice);
-
-            var sortedDevices = new SortedSet<(float load, int deviceId)>(Comparer<(float, int)>.Create((x, y) =>
-            {
-                int cmp = x.Item1.CompareTo(y.Item1);
-                return cmp != 0 ? cmp : x.Item2.CompareTo(y.Item2);
-            }));
-
-            foreach (var device in devices.Where(d => d != overloadedDevice))
-            {
-                float load = await MemoryInfo.GetDeviceLoad(device, _totalSystemRam);
-                sortedDevices.Add((load, device));
-            }
-
-            int newDeviceId = await EnsureDeviceAvailability(sortedDevices);
-
-            int simulatorsToMove = (int)Math.Floor(simulators.Count * 0.5);
-
-            foreach (SimulatorInfo simulator in simulators.Take(simulatorsToMove))
-            {
-                if (sortedDevices.Any())
-                {
-                    var leastLoadedDevice = sortedDevices.Min;
-                    int leastLoadedDeviceName = leastLoadedDevice.deviceId;
-
-                    _registryManager.RegisterSimulator(simulator, leastLoadedDeviceName);
-                    Console.WriteLine($"[LoadMonitor] Reassigned simulator {simulator} to {leastLoadedDeviceName}");
-                    _simulatorReassignments[simulator] = leastLoadedDeviceName;
-
-                    sortedDevices.Remove(leastLoadedDevice); // remove from the load ( log (n) )
-
-                    float updatedLoad = await MemoryInfo.GetDeviceLoad(leastLoadedDeviceName, _totalSystemRam);
-                    sortedDevices.Add((updatedLoad, leastLoadedDeviceName));
-                }
-            }
-
-            await NotifySimulatorsOfNewAssignments();
         }
 
 

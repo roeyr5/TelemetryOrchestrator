@@ -43,19 +43,20 @@ namespace TelemetryOrchestrator.Services.Http_Requests
                     ? OperationResult.Success
                     : OperationResult.Failed;
             }
-            catch(Exception e)
+            catch (Exception e)
             {
-                System.Console.WriteLine("error" +e);
+                System.Console.WriteLine("error" + e);
                 return OperationResult.Failed;
             }
         }
 
-        public async Task<OperationResult> ConfigureSimulator(int uavNumber, int udpPort)
+        public async Task<OperationResult> ConfigureSimulator(int uavNumber, string fileName, int udpPort)
         {
             ChannelDTO channelDto = new()
             {
                 uavNumber = uavNumber,
-                port = udpPort
+                port = udpPort,
+                fileName = fileName
             };
 
             string serializedData = JsonSerializer.Serialize(channelDto);
